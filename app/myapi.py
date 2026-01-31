@@ -13,18 +13,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ================= MODELS =================
+
 class UserRegistration(BaseModel):
     tg_id: int
     name: str
+
 
 class TaskCreate(BaseModel):
     user_id: int
     title: str
 
+
 class TaskResponse(BaseModel):
     id: int
     title: str
-    is_completed: int
+    is_completed: bool
+
+
+class HabitCreate(BaseModel):
+    user_id: int
+    title: str
+
+
+class HabitResponse(BaseModel):
+    id: int
+    title: str
+    is_completed_today: bool
+
+
+# ================= USERS =================
 
 @app.post("/api/register")
 async def register_user(user: UserRegistration):
@@ -34,16 +52,40 @@ async def register_user(user: UserRegistration):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ================= TASKS =================
+
 @app.post("/api/tasks/add")
-async def add_task(task: TaskCreate):
+async def api_add_task(task: TaskCreate):
     db.add_task(task.user_id, task.title)
     return {"status": "ok"}
 
+
 @app.get("/api/tasks/{user_id}", response_model=List[TaskResponse])
-async def get_tasks(user_id: int):
+async def api_get_tasks(user_id: int):
     return db.get_user_tasks(user_id)
 
+
 @app.post("/api/tasks/toggle/{task_id}")
-async def toggle_task(task_id: int):
+async def api_toggle_task(task_id: int):
     db.toggle_task_status(task_id)
+    return {"status": "ok"}
+
+
+# ================= HABITS =================
+
+@app.post("/api/habits/add")
+async def api_add_habit(habit: HabitCreate):
+    db.add_habit(habit.user_id, habit.title)
+    return {"status": "ok"}
+
+
+@app.get("/api/habits/{user_id}", response_model=List[HabitResponse])
+async def api_get_habits(user_id: int):
+    return db.get_user_habits(user_id)
+
+
+@app.post("/api/habits/toggle/{habit_id}")
+async def api_toggle_habit(habit_id: int):
+    db.toggle_habit_today(habit_id)
     return {"status": "ok"}
