@@ -130,7 +130,7 @@ def get_user_habits(user_id: int):
                 SELECT
                     id,
                     title,
-                    completed_date = CURRENT_DATE AS is_completed_today
+                    COALESCE(completed_date = CURRENT_DATE, false) AS is_completed_today
                 FROM habits
                 WHERE user_id = %s
                 ORDER BY id DESC;
