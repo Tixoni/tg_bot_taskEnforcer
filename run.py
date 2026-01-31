@@ -1,23 +1,36 @@
 import asyncio
-import sqlite3
 import logging
-from aiogram import Bot, Dispatcher, types
-
+import uvicorn
+from aiogram import Bot, Dispatcher
 from config import TOKEN
 from app.handlers import router
-
-API_KEY = TOKEN
+from app.database import init_db
+from app.myapi import app  
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-async def main():
+async def start_bot():
     dp.include_router(router)
     await dp.start_polling(bot)
+
+async def main():
+    init_db()
+    
+    # Запускаем бота как отдельную задачу
+    bot_task = asyncio.create_task(start_bot())
+    
+    # Настраиваем и запускаем сервер
+    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    server = uvicorn.Server(config)
+    
+    # Ждем выполнения обоих процессов
+    await server.serve()
+    await bot_task
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     try:
         asyncio.run(main())
-    except KeyboardInterrupt: #чтобы отключать бота комбинацией cntr + c 
+    except KeyboardInterrupt:
         print("Exit")

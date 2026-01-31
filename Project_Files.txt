@@ -1,0 +1,490 @@
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\script.js]
+[Размер: 3017 байт]
+[Дата изменения: 2026-01-29 14:48:36.498655]
+
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
+
+// ВАЖНО: Замени на адрес своего ngrok при тестировании [cite: 32]
+const API_BASE_URL = "http://127.0.0.1:8000"; 
+const userId = tg.initDataUnsafe.user?.id || 999; 
+
+// Проверка регистрации
+(async function init() {
+    if (localStorage.getItem('user_registered')) {
+        showTasksScreen();
+    } else {
+        document.getElementById('reg-screen').classList.remove('hidden');
+    }
+})();
+
+// Регистрация пользователя 
+async function register() {
+    const name = document.getElementById('username').value;
+    if (!name) return tg.showAlert("Имя введи!");
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/register`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ tg_id: userId, name: name })
+        });
+        
+        if (res.ok) {
+            localStorage.setItem('user_registered', 'true');
+            showTasksScreen();
+        }
+    } catch (e) {
+        tg.showAlert("Сервер спит или ngrok сдох");
+    }
+}
+
+// Загрузка списка задач 
+async function loadTasks() {
+    const list = document.getElementById('tasks-list');
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/tasks/${userId}`);
+        const tasks = await res.json();
+        
+        list.innerHTML = '';
+        tasks.forEach(task => {
+            const div = document.createElement('div');
+            div.className = 'card p-4 rounded-xl flex items-center justify-between shadow-sm';
+            div.innerHTML = `
+                <span class="${task.is_completed ? 'task-completed' : ''}">${task.title}</span>
+                <input type="checkbox" ${task.is_completed ? 'checked' : ''} 
+                    onclick="toggleTask(${task.id})">
+            `;
+            list.appendChild(div);
+        });
+    } catch (e) {
+        console.error("Ошибка загрузки задач:", e);
+    }
+}
+
+// Добавление новой задачи 
+async function addNewTask() {
+    const input = document.getElementById('task-input');
+    if (!input.value) return;
+
+    await fetch(`${API_BASE_URL}/api/tasks/add`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ user_id: userId, title: input.value })
+    });
+    
+    input.value = '';
+    loadTasks();
+}
+
+// Переключение статуса 
+async function toggleTask(taskId) {
+    await fetch(`${API_BASE_URL}/api/tasks/toggle/${taskId}`, { method: 'POST' });
+    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+    loadTasks();
+}
+
+function showTasksScreen() {
+    document.getElementById('reg-screen').classList.add('hidden');
+    document.getElementById('tasks-screen').classList.remove('hidden');
+    loadTasks();
+}
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\index.html]
+[Размер: 1615 байт]
+[Дата изменения: 2026-01-29 14:47:35.568399]
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Enforcer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="p-4">
+
+    <div id="reg-screen" class="max-w-md mx-auto card p-6 rounded-2xl shadow-lg mt-10 hidden">
+        <h1 class="text-2xl font-bold mb-6 text-center">Создать профиль</h1>
+        <input type="text" id="username" placeholder="Твое имя" 
+            class="w-full px-4 py-2 border rounded-lg mb-4 text-black outline-none focus:ring-2 focus:ring-blue-500">
+        <button onclick="register()" class="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700">
+            Начать работу
+        </button>
+    </div>
+
+    <div id="tasks-screen" class="max-w-md mx-auto hidden">
+        <h1 class="text-xl font-bold mb-4">Твои задачи, сучка!</h1>
+        
+        <div class="flex gap-2 mb-6">
+            <input type="text" id="task-input" placeholder="Что нужно сделать?" 
+                class="flex-1 px-4 py-2 border rounded-lg text-black outline-none">
+            <button onclick="addNewTask()" class="bg-green-600 text-white px-4 py-2 rounded-lg font-bold">+</button>
+        </div>
+
+        <div id="tasks-list" class="space-y-3">
+            </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\style.css]
+[Размер: 519 байт]
+[Дата изменения: 2026-01-29 14:48:13.284878]
+
+/* Использование цветов темы Telegram для нативности */
+body {
+    background-color: var(--tg-theme-bg-color, #f5f5f5);
+    color: var(--tg-theme-text-color, #222);
+}
+
+.card {
+    background-color: var(--tg-theme-secondary-bg-color, #ffffff);
+}
+
+.task-completed {
+    text-decoration: line-through;
+    opacity: 0.5;
+}
+
+/* Кастомный чекбокс для красоты */
+input[type="checkbox"] {
+    accent-color: var(--tg-theme-button-color, #2481cc);
+}
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\config.py]
+[Размер: 58 байт]
+[Дата изменения: 2026-01-28 10:05:47.491194]
+
+
+TOKEN = "8017840697:AAFF2D8bhzEC5wlzZcMlABWQa50tszTfXOI"
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\Copy_Files_POSSIBLE_DANGER_RUN_ONLY_HERE.py]
+[Размер: 5446 байт]
+[Дата изменения: 2026-01-29 14:36:32.325775]
+
+import os
+import sys
+import glob
+from pathlib import Path
+from datetime import datetime
+
+def main():
+    # Установка корневой директории
+    if len(sys.argv) > 1:
+        root_dir = sys.argv[1]
+    else:
+        root_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Проверка существования директории
+    if not os.path.exists(root_dir):
+        print(f'Ошибка: Директория "{root_dir}" не существует!')
+        input('Нажмите Enter для выхода...')
+        return 1
+    
+    # Получение абсолютного пути
+    root_dir = os.path.abspath(root_dir)
+    
+    print(f'Рабочая директория: {root_dir}')
+    print()
+    
+    # Удалить существующий файл результатов
+    if os.path.exists('Project_Files.txt'):
+        os.remove('Project_Files.txt')
+    
+    # Список разрешенных расширений для исходного кода
+    allowed_extensions = [
+        '*.txt', '*.bat', '*.cmd', '*.ps1', '*.js', '*.html', '*.css', 
+        '*.py', '*.java', '*.c', '*.cpp', '*.h', '*.cs', '*.php', 
+        '*.xml', '*.json', '*.config', '*.ini', '*.md', '*.sql', 
+        '*.yml', '*.yaml'
+    ]
+    
+    # Исключаемые директории
+    exclude_dirs = ['.git', 'node_modules', 'bin', 'obj', 'packages', '.vs', '.idea']
+    
+    # Максимальный размер файла (1 МБ)
+    max_size = 1048576
+    
+    print('Начало обработки файлов...')
+    print()
+    
+    processed_files = 0
+    skipped_files = 0
+    
+    # Рекурсивный поиск файлов
+    for extension in allowed_extensions:
+        pattern = os.path.join(root_dir, '**', extension)
+        
+        for file_path in glob.glob(pattern, recursive=True):
+            # Проверка на исключаемые директории
+            skip_file = False
+            for exclude_dir in exclude_dirs:
+                if exclude_dir in file_path.split(os.sep):
+                    skip_file = True
+                    break
+            
+            if skip_file:
+                continue
+            
+            # Получение информации о файле
+            try:
+                file_size = os.path.getsize(file_path)
+                mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                
+                # Проверка размера файла
+                if file_size < max_size:
+                    print(f'Обработка: {file_path}')
+                    
+                    with open('Project_Files.txt', 'a', encoding='utf-8') as result_file:
+                        result_file.write(f'[Файл: {file_path}]\n')
+                        result_file.write(f'[Размер: {file_size} байт]\n')
+                        result_file.write(f'[Дата изменения: {mod_time}]\n')
+                        result_file.write('\n')
+                        
+                        # Попытка чтения файла
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as src_file:
+                                content = src_file.read()
+                                result_file.write(content)
+                        except UnicodeDecodeError:
+                            # Попробуем другие кодировки
+                            try:
+                                with open(file_path, 'r', encoding='cp1251') as src_file:
+                                    content = src_file.read()
+                                    result_file.write(content)
+                            except:
+                                result_file.write('[Ошибка чтения файла - возможно бинарный файл]\n')
+                        except Exception as e:
+                            result_file.write(f'[Ошибка чтения файла: {str(e)}]\n')
+                        
+                        result_file.write('\n')
+                        result_file.write('-----\n')
+                        result_file.write('\n')
+                    
+                    processed_files += 1
+                else:
+                    print(f'Пропуск большого файла: {file_path} ({file_size} байт)')
+                    
+                    with open('Project_Files.txt', 'a', encoding='utf-8') as result_file:
+                        result_file.write(f'[Файл: {file_path} - ПРОПУЩЕН (слишком большой: {file_size} байт)]\n')
+                    
+                    skipped_files += 1
+                    
+            except Exception as e:
+                print(f'Ошибка при обработке файла {file_path}: {e}')
+    
+    print()
+    print(f'Готово! Результат сохранен в Project_Files.txt')
+    print(f'Обработано файлов: {processed_files}, пропущено: {skipped_files}')
+    print(f'Обработана директория: {root_dir}')
+    
+    # Пауза в конце
+    input('Нажмите Enter для выхода...')
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main())
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\run.py]
+[Размер: 979 байт]
+[Дата изменения: 2026-01-29 14:34:10.391477]
+
+import asyncio
+import logging
+import uvicorn
+from aiogram import Bot, Dispatcher
+from config import TOKEN
+from app.handlers import router
+from app.database import init_db
+from app.myapi import app  
+
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
+
+async def start_bot():
+    dp.include_router(router)
+    await dp.start_polling(bot)
+
+async def main():
+    init_db()
+    
+    # Запускаем бота как отдельную задачу
+    bot_task = asyncio.create_task(start_bot())
+    
+    # Настраиваем и запускаем сервер
+    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    server = uvicorn.Server(config)
+    
+    # Ждем выполнения обоих процессов
+    await server.serve()
+    await bot_task
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Exit")
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\database.py]
+[Размер: 1937 байт]
+[Дата изменения: 2026-01-29 14:44:30.444619]
+
+import sqlite3
+
+def init_db():
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    # [cite_start]Таблица пользователей [cite: 34]
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            tg_id INTEGER UNIQUE,
+            username TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    # Добавляем таблицу задач (её не было в твоём файле)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            title TEXT,
+            is_completed INTEGER DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES users (tg_id)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def add_user(tg_id, username):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    try:
+        cursor.execute('INSERT OR IGNORE INTO users (tg_id, username) VALUES (?, ?)', (tg_id, username))
+        conn.commit()
+    finally:
+        conn.close()
+
+def add_task(user_id, title):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO tasks (user_id, title) VALUES (?, ?)', (user_id, title))
+    conn.commit()
+    conn.close()
+
+def get_user_tasks(user_id):
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row 
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, title, is_completed FROM tasks WHERE user_id = ?', (user_id,))
+    tasks = cursor.fetchall()
+    conn.close()
+    return [dict(task) for task in tasks]
+
+def toggle_task_status(task_id):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute('UPDATE tasks SET is_completed = 1 - is_completed WHERE id = ?', (task_id,))
+    conn.commit()
+    conn.close()
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\handlers.py]
+[Размер: 703 байт]
+[Дата изменения: 2026-01-28 10:10:24.717264]
+
+from aiogram import F, Router
+from aiogram.filters import CommandStart, Command
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
+
+
+router = Router()
+
+@router.message(Command("start"))
+async def cmd_start(message: Message):
+    kb = [
+        [KeyboardButton(text="/list")],
+        [KeyboardButton(text="/add")]
+    ]
+    keyboard = ReplyKeyboardMarkup(keyboard=kb,resize_keyboard=True)
+    await message.answer("Я заставлю тебя работать маленькая сучка!", reply_markup=keyboard)
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\inline.py]
+[Размер: 0 байт]
+[Дата изменения: 2026-01-28 10:03:18.086374]
+
+
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\myapi.py]
+[Размер: 1470 байт]
+[Дата изменения: 2026-01-29 14:38:43.343854]
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
+import app.database as db
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# [cite_start]Модели данных [cite: 36]
+class UserRegistration(BaseModel): # Вернули модель
+    tg_id: int
+    name: str
+
+class TaskCreate(BaseModel):
+    user_id: int
+    title: str
+
+class TaskResponse(BaseModel):
+    id: int
+    title: str
+    is_completed: int
+
+# Эндпоинт регистрации (Вернули его!)
+@app.post("/api/register")
+async def register_user(user_data: UserRegistration):
+    db.add_user(user_data.tg_id, user_data.name)
+    return {"status": "success", "message": f"User {user_data.name} saved"}
+
+# Эндпоинты задач
+@app.post("/api/tasks/add")
+async def api_add_task(task: TaskCreate):
+    db.add_task(task.user_id, task.title) # Теперь AttributeError не будет
+    return {"status": "success", "message": "Task added"}
+
+@app.get("/api/tasks/{user_id}", response_model=List[TaskResponse])
+async def api_get_tasks(user_id: int):
+    tasks = db.get_user_tasks(user_id)
+    return tasks
+
+@app.post("/api/tasks/toggle/{task_id}")
+async def api_toggle_task(task_id: int):
+    db.toggle_task_status(task_id)
+    return {"status": "success"}
+-----
+
