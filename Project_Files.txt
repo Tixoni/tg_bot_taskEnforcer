@@ -1,15 +1,7 @@
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\Procfile.txt]
-[Размер: 18 байт]
-[Дата изменения: 2026-01-31 17:10:16.530899]
-
-web: python run.py
------
-
 [Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\requirements.txt]
-[Размер: 99 байт]
-[Дата изменения: 2026-01-31 17:10:11.747706]
+[Размер: 86 байт]
+[Дата изменения: 2026-01-31 17:33:00.469381]
 
-python-3.12
 aiogram==3.17.0
 fastapi==0.115.0
 uvicorn==0.34.0
@@ -17,11 +9,18 @@ pydantic==2.10.0
 requests==2.32.3
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\script.js]
-[Размер: 2943 байт]
-[Дата изменения: 2026-01-29 15:07:04.254185]
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\runtime.txt]
+[Размер: 11 байт]
+[Дата изменения: 2026-01-31 17:33:15.106470]
 
-const API_BASE_URL = "https://твой-адрес-из-ngrok.ngrok-free.app"; 
+python-3.12
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\script.js]
+[Размер: 2940 байт]
+[Дата изменения: 2026-01-31 17:44:59.281103]
+
+const API_BASE_URL = "https://tgbottaskenforcer-production.up.railway.app";
 
 const tg = window.Telegram.WebApp;
 tg.ready();

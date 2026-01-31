@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
@@ -13,8 +13,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# [cite_start]Модели данных [cite: 36]
-class UserRegistration(BaseModel): # Вернули модель
+class UserRegistration(BaseModel):
     tg_id: int
     name: str
 
@@ -27,24 +26,24 @@ class TaskResponse(BaseModel):
     title: str
     is_completed: int
 
-# Эндпоинт регистрации (Вернули его!)
 @app.post("/api/register")
-async def register_user(user_data: UserRegistration):
-    db.add_user(user_data.tg_id, user_data.name)
-    return {"status": "success", "message": f"User {user_data.name} saved"}
+async def register_user(user: UserRegistration):
+    try:
+        db.add_user(user.tg_id, user.name)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Эндпоинты задач
 @app.post("/api/tasks/add")
-async def api_add_task(task: TaskCreate):
-    db.add_task(task.user_id, task.title) # Теперь AttributeError не будет
-    return {"status": "success", "message": "Task added"}
+async def add_task(task: TaskCreate):
+    db.add_task(task.user_id, task.title)
+    return {"status": "ok"}
 
 @app.get("/api/tasks/{user_id}", response_model=List[TaskResponse])
-async def api_get_tasks(user_id: int):
-    tasks = db.get_user_tasks(user_id)
-    return tasks
+async def get_tasks(user_id: int):
+    return db.get_user_tasks(user_id)
 
 @app.post("/api/tasks/toggle/{task_id}")
-async def api_toggle_task(task_id: int):
+async def toggle_task(task_id: int):
     db.toggle_task_status(task_id)
-    return {"status": "success"}
+    return {"status": "ok"}
