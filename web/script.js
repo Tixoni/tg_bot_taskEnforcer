@@ -4,104 +4,86 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-const userId = tg.initDataUnsafe.user?.id;
+const tgUser = tg.initDataUnsafe.user;
 
-if (!userId) {
-    tg.showAlert("Не удалось получить Telegram ID");
-    throw new Error("No Telegram user id");
+if (!tgUser?.id) {
+    tg.showAlert("Не удалось получить данные Telegram");
+    throw new Error("No Telegram user");
 }
 
-// Инициализация
+const userId = tgUser.id;
+const userName =
+    tgUser.username ||
+    tgUser.first_name ||
+    "TelegramUser";
+
+// === АВТО-РЕГИСТРАЦИЯ ===
 (async function init() {
-    if (localStorage.getItem('user_registered') === 'true') {
-        showTasksScreen();
-    } else {
-        document.getElementById('reg-screen').classList.remove('hidden');
-    }
-})();
-
-// ================= REGISTRATION =================
-async function register() {
-    const name = document.getElementById('username').value.trim();
-    if (!name) {
-        tg.showAlert("Имя введи");
-        return;
-    }
-
     try {
-        const res = await fetch(`${API_BASE_URL}/api/register`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ tg_id: userId, name })
+        await fetch(`${API_BASE_URL}/api/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                tg_id: userId,
+                name: userName
+            })
         });
 
-        if (!res.ok) {
-            const text = await res.text();
-            console.error("API error:", text);
-            tg.showAlert("Ошибка регистрации: " + text);
-            return;
-        }
-
-        localStorage.setItem('user_registered', 'true');
         showTasksScreen();
 
     } catch (e) {
-        console.error("Network error:", e);
-        tg.showAlert("Сеть недоступна или сервер не отвечает");
+        console.error(e);
+        tg.showAlert("Не удалось подключиться к серверу");
     }
-}
+})();
 
 // ================= TASKS =================
 async function loadTasks() {
-    const list = document.getElementById('tasks-list');
+    const list = document.getElementById("tasks-list");
 
     try {
         const res = await fetch(`${API_BASE_URL}/api/tasks/${userId}`);
-
-        if (!res.ok) {
-            throw new Error("Failed to load tasks");
-        }
+        if (!res.ok) throw new Error("Load failed");
 
         const tasks = await res.json();
-        list.innerHTML = '';
+        list.innerHTML = "";
 
         tasks.forEach(task => {
-            const div = document.createElement('div');
-            div.className = 'card p-4 rounded-xl flex items-center justify-between shadow-sm';
+            const div = document.createElement("div");
+            div.className =
+                "card p-4 rounded-xl flex items-center justify-between shadow-sm";
+
             div.innerHTML = `
-                <span class="${task.is_completed ? 'task-completed' : ''}">
+                <span class="${task.is_completed ? "task-completed" : ""}">
                     ${task.title}
                 </span>
                 <input type="checkbox"
-                    ${task.is_completed ? 'checked' : ''}
+                    ${task.is_completed ? "checked" : ""}
                     onclick="toggleTask(${task.id})">
             `;
+
             list.appendChild(div);
         });
 
     } catch (e) {
-        console.error("Ошибка загрузки задач:", e);
-        tg.showAlert("Не удалось загрузить задачи");
+        console.error(e);
+        tg.showAlert("Ошибка загрузки задач");
     }
 }
 
 async function addNewTask() {
-    const input = document.getElementById('task-input');
+    const input = document.getElementById("task-input");
     const title = input.value.trim();
     if (!title) return;
 
     try {
-        const res = await fetch(`${API_BASE_URL}/api/tasks/add`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+        await fetch(`${API_BASE_URL}/api/tasks/add`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ user_id: userId, title })
         });
 
-        if (!res.ok) {
-            throw new Error("Failed to add task");
-        }
-
-        input.value = '';
+        input.value = "";
         loadTasks();
 
     } catch (e) {
@@ -112,15 +94,11 @@ async function addNewTask() {
 
 async function toggleTask(taskId) {
     try {
-        const res = await fetch(`${API_BASE_URL}/api/tasks/toggle/${taskId}`, {
-            method: 'POST'
+        await fetch(`${API_BASE_URL}/api/tasks/toggle/${taskId}`, {
+            method: "POST"
         });
 
-        if (!res.ok) {
-            throw new Error("Toggle failed");
-        }
-
-        tg.HapticFeedback?.impactOccurred('light');
+        tg.HapticFeedback?.impactOccurred("light");
         loadTasks();
 
     } catch (e) {
@@ -130,7 +108,6 @@ async function toggleTask(taskId) {
 }
 
 function showTasksScreen() {
-    document.getElementById('reg-screen').classList.add('hidden');
-    document.getElementById('tasks-screen').classList.remove('hidden');
+    document.getElementById("tasks-screen").classList.remove("hidden");
     loadTasks();
 }
