@@ -1,20 +1,25 @@
-const API_BASE_URL = "https://tgbottaskenforcer-production.up.railway.app"; 
-const tg = window.Telegram.WebApp;
+// API на том же хосте, что и страница — убирает "failed to fetch" и CORS
+const API_BASE_URL = "";
 
-// 1. Критическое исправление: Безопасное получение данных пользователя 
-const tgUser = tg.initDataUnsafe?.user;
+const tg = window.Telegram?.WebApp;
 
-if (!tgUser?.id) {
+// Безопасное получение данных пользователя; режим без Telegram для теста
+let userId, userName;
+if (tg?.initDataUnsafe?.user) {
+    const u = tg.initDataUnsafe.user;
+    userId = u.id;
+    userName = u.username || u.first_name || "User";
     tg.ready();
-    tg.showAlert("Ошибка: Данные Telegram не получены. Попробуйте перезапустить бота.");
-    throw new Error("No Telegram user data available");
+    tg.expand();
+} else {
+    // Режим без Telegram (локальный тест): используем тестовый ID
+    userId = 0;
+    userName = "TestUser";
+    if (tg) {
+        tg.ready();
+        tg.showAlert("Данные Telegram не получены. Работа в тестовом режиме.");
+    }
 }
-
-const userId = tgUser.id;
-const userName = tgUser.username || tgUser.first_name || "User";
-
-tg.ready();
-tg.expand();
 
 // === Инициализация ===
 (async function init() {
@@ -36,7 +41,10 @@ tg.expand();
 
     } catch (e) {
         console.error("Initialization error:", e);
-        tg.showAlert("Сервер недоступен. Проверьте соединение.");
+        if (e.name === "TypeError" && e.message.includes("fetch")) {
+            console.error("Failed to fetch: откройте приложение по ссылке с того же сервера (например / или /index.html)");
+        }
+        tg?.showAlert("Сервер недоступен. Проверьте соединение.");
     }
 })();
 
@@ -63,8 +71,28 @@ function switchTab(tab) {
         loadHabits();
     }
     
-    // 3. Исправление: Чистый JS без цитат 
-    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+}
+
+// Экранирование HTML для безопасного отображения заголовков
+function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Создание HTML для одной задачи или привычки (используется в loadTasks)
+function createItemHTML(item, type) {
+    const isTask = type === "task";
+    const completed = isTask ? item.is_completed : item.is_completed_today;
+    const borderClass = isTask ? "border-blue-600" : "border-orange-500";
+    const toggleFn = isTask ? `toggleTask(${item.id})` : `toggleHabit(${item.id})`;
+    const title = escapeHtml(item.title || "");
+    return `
+        <div class="card p-4 rounded-xl flex items-center justify-between shadow-sm mb-2 border-l-4 ${borderClass}">
+            <span class="${completed ? "line-through opacity-50" : ""} font-bold">${title}</span>
+            <input type="checkbox" ${completed ? "checked" : ""} onclick="${toggleFn}">
+        </div>`;
 }
 
 // ================= TASKS =================
@@ -74,25 +102,28 @@ async function loadTasks() {
     if (!list) return;
 
     try {
-        // Вызываем два метода одновременно
         const [tRes, hRes] = await Promise.all([
             fetch(`${API_BASE_URL}/api/tasks/${userId}`),
             fetch(`${API_BASE_URL}/api/habits/${userId}`)
         ]);
+
+        if (!tRes.ok) throw new Error("Не удалось загрузить задачи");
+        if (!hRes.ok) throw new Error("Не удалось загрузить привычки");
 
         const tasks = await tRes.json();
         const habits = await hRes.json();
 
         list.innerHTML = "";
 
-        // Рендерим обычные задачи
-        tasks.forEach(t => list.insertAdjacentHTML('beforeend', createItemHTML(t, 'task')));
+        if (!Array.isArray(tasks)) throw new Error("Некорректный ответ API: задачи");
+        if (!Array.isArray(habits)) throw new Error("Некорректный ответ API: привычки");
 
-        // Рендерим привычки 
-        habits.forEach(h => list.insertAdjacentHTML('beforeend', createItemHTML(h, 'habit')));
-        
-
-    } catch (e) { console.error("Load tasks error:", e); }
+        tasks.forEach(t => list.insertAdjacentHTML("beforeend", createItemHTML(t, "task")));
+        habits.forEach(h => list.insertAdjacentHTML("beforeend", createItemHTML(h, "habit")));
+    } catch (e) {
+        console.error("Load tasks error:", e);
+        tg?.showAlert(e.message || "Ошибка загрузки данных");
+    }
 }
 
 async function addNewTask() {
@@ -119,7 +150,7 @@ async function toggleTask(taskId) {
     try {
         const res = await fetch(`${API_BASE_URL}/api/tasks/toggle/${taskId}`, { method: "POST" });
         if (res.ok) {
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
+            if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
             loadTasks();
         }
     } catch (e) {
@@ -135,23 +166,25 @@ async function loadHabits() {
 
     try {
         const res = await fetch(`${API_BASE_URL}/api/habits/${userId}`);
-        if (!res.ok) throw new Error("Load habits failed");
-        
+        if (!res.ok) throw new Error("Не удалось загрузить привычки");
         const habits = await res.json();
         list.innerHTML = "";
+
+        if (!Array.isArray(habits)) throw new Error("Некорректный ответ API: привычки");
 
         habits.forEach(habit => {
             const div = document.createElement("div");
             div.className = "card p-4 rounded-xl flex items-center justify-between shadow-sm mb-2 border-l-4 border-orange-500";
             div.innerHTML = `
-                <span class="${habit.is_completed_today ? "line-through opacity-50" : ""} font-bold">${habit.title}</span>
+                <span class="${habit.is_completed_today ? "line-through opacity-50" : ""} font-bold">${escapeHtml(habit.title || "")}</span>
                 <input type="checkbox" ${habit.is_completed_today ? "checked" : ""} 
                        onclick="toggleHabit(${habit.id})">
             `;
             list.appendChild(div);
         });
     } catch (e) {
-        console.error(e);
+        console.error("Load habits error:", e);
+        tg?.showAlert(e.message || "Ошибка загрузки привычек");
     }
 }
 
@@ -171,7 +204,7 @@ async function addNewHabit() {
             loadHabits();
         }
     } catch (e) {
-        tg.showAlert("Не удалось добавить привычку");
+        tg?.showAlert("Не удалось добавить привычку");
     }
 }
 

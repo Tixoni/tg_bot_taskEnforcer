@@ -1,10 +1,15 @@
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List
 import app.database as db
 
 app = FastAPI()
+
+# Папка web — рядом с app (родитель app = корень проекта)
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 app.add_middleware(
     CORSMiddleware,
@@ -89,3 +94,15 @@ async def api_get_habits(user_id: int):
 async def api_toggle_habit(habit_id: int):
     db.toggle_habit_today(habit_id)
     return {"status": "ok"}
+
+
+# Проверка работы сервера (для Railway/мониторинга)
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+# Раздача веб-приложения с того же хоста (убирает "failed to fetch")
+# Подключать после всех /api маршрутов, чтобы они имели приоритет
+if WEB_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
