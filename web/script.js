@@ -1,7 +1,21 @@
-// API на том же хосте, что и страница — убирает "failed to fetch" и CORS
-const API_BASE_URL = "";
+// API: тот же хост по умолчанию. Если открываете не с сервера — укажите <meta name="api-base" content="https://ваш-сервер.railway.app"> в index.html
+const API_BASE_URL = (() => {
+    const m = document.querySelector('meta[name="api-base"]');
+    const url = m && m.getAttribute("content") && m.getAttribute("content").trim();
+    return url || "";
+})();
 
 const tg = window.Telegram?.WebApp;
+
+// Показать сообщение на странице. showAlert/showPopup в Web App 6.0 не поддерживаются — не вызываем их вообще
+function showMessage(msg) {
+    const errEl = document.getElementById("init-error");
+    if (errEl) {
+        errEl.textContent = msg;
+        errEl.classList.remove("hidden");
+        setTimeout(() => errEl.classList.add("hidden"), 5000);
+    }
+}
 
 // Безопасное получение данных пользователя; режим без Telegram для теста
 let userId, userName;
@@ -12,20 +26,32 @@ if (tg?.initDataUnsafe?.user) {
     tg.ready();
     tg.expand();
 } else {
-    // Режим без Telegram (локальный тест): используем тестовый ID
     userId = 0;
     userName = "TestUser";
     if (tg) {
         tg.ready();
-        tg.showAlert("Данные Telegram не получены. Работа в тестовом режиме.");
+        showMessage("Данные Telegram не получены. Работа в тестовом режиме.");
+    }
+}
+
+// Выполнить fetch с одним повтором при сетевой ошибке (холодный старт сервера)
+async function fetchWithRetry(url, options, retries = 1) {
+    try {
+        return await fetch(url, options);
+    } catch (e) {
+        if (retries > 0 && (e.name === "TypeError" || e.message?.includes("fetch"))) {
+            await new Promise(r => setTimeout(r, 2500));
+            return fetch(url, options);
+        }
+        throw e;
     }
 }
 
 // === Инициализация ===
 (async function init() {
     try {
-        // 2. Критическое исправление: Проверка успешности регистрации 
-        const res = await fetch(`${API_BASE_URL}/api/register`, {
+        const url = `${API_BASE_URL}/api/register`;
+        const res = await fetchWithRetry(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ tg_id: userId, name: userName })
@@ -33,18 +59,28 @@ if (tg?.initDataUnsafe?.user) {
 
         if (!res.ok) {
             const errorText = await res.text();
-            throw new Error(`Registration failed: ${errorText}`);
+            throw new Error(errorText || `Ошибка сервера ${res.status}`);
         }
 
-        // Загружаем данные только после успешной проверки пользователя
-        await Promise.all([loadTasks(), loadHabits()]);
-
+        await loadTasks();
+        await loadHabits();
     } catch (e) {
         console.error("Initialization error:", e);
-        if (e.name === "TypeError" && e.message.includes("fetch")) {
-            console.error("Failed to fetch: откройте приложение по ссылке с того же сервера (например / или /index.html)");
+        const isNetwork = !e.message || e.message === "Failed to fetch" || (e.name === "TypeError" && e.message?.includes("fetch"));
+        let msg;
+        if (isNetwork) {
+            msg = "Нет связи с сервером. Откройте приложение из меню бота (Web App). Проверьте интернет и что URL бота совпадает с сервером.";
+        } else {
+            try {
+                const j = JSON.parse(e.message);
+                msg = "Сервер: " + (j.detail || e.message);
+            } catch (_) {
+                msg = "Сервер: " + (e.message || "ошибка");
+            }
         }
-        tg?.showAlert("Сервер недоступен. Проверьте соединение.");
+        showMessage(msg);
+        const errEl = document.getElementById("init-error");
+        if (errEl) errEl.classList.remove("hidden");
     }
 })();
 
@@ -122,7 +158,7 @@ async function loadTasks() {
         habits.forEach(h => list.insertAdjacentHTML("beforeend", createItemHTML(h, "habit")));
     } catch (e) {
         console.error("Load tasks error:", e);
-        tg?.showAlert(e.message || "Ошибка загрузки данных");
+        showMessage(e.message || "Ошибка загрузки данных");
     }
 }
 
@@ -132,17 +168,20 @@ async function addNewTask() {
     if (!title) return;
 
     try {
-        const res = await fetch(`${API_BASE_URL}/api/tasks/add`, {
+        const res = await fetchWithRetry(`${API_BASE_URL}/api/tasks/add`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ user_id: userId, title: title })
         });
         if (res.ok) {
             input.value = "";
-            loadTasks();
+        } else {
+            const j = await res.json().catch(() => ({}));
+            showMessage("Не удалось добавить задачу. " + (j.detail || res.status));
         }
+        loadTasks();
     } catch (e) {
-        tg.showAlert("Не удалось добавить задачу");
+        showMessage("Нет связи. Проверьте интернет.");
     }
 }
 
@@ -184,7 +223,7 @@ async function loadHabits() {
         });
     } catch (e) {
         console.error("Load habits error:", e);
-        tg?.showAlert(e.message || "Ошибка загрузки привычек");
+        showMessage(e.message || "Ошибка загрузки привычек");
     }
 }
 
@@ -194,17 +233,20 @@ async function addNewHabit() {
     if (!title) return;
 
     try {
-        const res = await fetch(`${API_BASE_URL}/api/habits/add`, {
+        const res = await fetchWithRetry(`${API_BASE_URL}/api/habits/add`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ user_id: userId, title: title })
         });
         if (res.ok) {
             input.value = "";
-            loadHabits();
+        } else {
+            const j = await res.json().catch(() => ({}));
+            showMessage("Не удалось добавить привычку. " + (j.detail || res.status));
         }
+        loadHabits();
     } catch (e) {
-        tg?.showAlert("Не удалось добавить привычку");
+        showMessage("Нет связи. Проверьте интернет.");
     }
 }
 
@@ -212,7 +254,7 @@ async function toggleHabit(habitId) {
     try {
         const res = await fetch(`${API_BASE_URL}/api/habits/toggle/${habitId}`, { method: "POST" });
         if (res.ok) {
-            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+            if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
             loadHabits();
         }
     } catch (e) {

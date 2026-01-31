@@ -7,11 +7,16 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set")
 
+# Railway Postgres часто требует SSL
+if "sslmode" not in DATABASE_URL and "railway" in DATABASE_URL.lower():
+    DATABASE_URL += "&sslmode=require" if "?" in DATABASE_URL else "?sslmode=require"
+
 
 def get_connection():
     return psycopg.connect(
         DATABASE_URL,
-        row_factory=dict_row
+        row_factory=dict_row,
+        connect_timeout=10,
     )
 
 

@@ -62,43 +62,60 @@ async def register_user(user: UserRegistration):
 
 @app.post("/api/tasks/add")
 async def api_add_task(task: TaskCreate):
-    db.add_task(task.user_id, task.title)
-    return {"status": "ok"}
+    try:
+        db.add_task(task.user_id, task.title)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/tasks/{user_id}", response_model=List[TaskResponse])
 async def api_get_tasks(user_id: int):
-    return db.get_user_tasks(user_id)
+    try:
+        return db.get_user_tasks(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/tasks/toggle/{task_id}")
 async def api_toggle_task(task_id: int):
-    db.toggle_task_status(task_id)
-    return {"status": "ok"}
+    try:
+        db.toggle_task_status(task_id)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ================= HABITS =================
 
 @app.post("/api/habits/add")
 async def api_add_habit(habit: HabitCreate):
-    db.add_habit(habit.user_id, habit.title)
-    return {"status": "ok"}
+    try:
+        db.add_habit(habit.user_id, habit.title)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/habits/{user_id}", response_model=List[HabitResponse])
 async def api_get_habits(user_id: int):
-    rows = db.get_user_habits(user_id)
-    # Всегда возвращаем bool (БД/драйвер может вернуть None для is_completed_today)
-    return [
-        {"id": r["id"], "title": r["title"], "is_completed_today": bool(r.get("is_completed_today"))}
-        for r in rows
-    ]
+    try:
+        rows = db.get_user_habits(user_id)
+        return [
+            {"id": r["id"], "title": r["title"], "is_completed_today": bool(r.get("is_completed_today"))}
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/habits/toggle/{habit_id}")
 async def api_toggle_habit(habit_id: int):
-    db.toggle_habit_today(habit_id)
-    return {"status": "ok"}
+    try:
+        db.toggle_habit_today(habit_id)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Проверка работы сервера (для Railway/мониторинга)
