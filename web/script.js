@@ -1,4 +1,4 @@
-const API_BASE_URL = "https://твой-адрес-из-ngrok.ngrok-free.app"; 
+const API_BASE_URL = "https://tgbottaskenforcer-production.up.railway.app";
 
 const tg = window.Telegram.WebApp;
 tg.ready();
