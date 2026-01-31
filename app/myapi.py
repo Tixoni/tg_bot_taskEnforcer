@@ -1,5 +1,5 @@
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -87,7 +87,12 @@ async def api_add_habit(habit: HabitCreate):
 
 @app.get("/api/habits/{user_id}", response_model=List[HabitResponse])
 async def api_get_habits(user_id: int):
-    return db.get_user_habits(user_id)
+    rows = db.get_user_habits(user_id)
+    # Всегда возвращаем bool (БД/драйвер может вернуть None для is_completed_today)
+    return [
+        {"id": r["id"], "title": r["title"], "is_completed_today": bool(r.get("is_completed_today"))}
+        for r in rows
+    ]
 
 
 @app.post("/api/habits/toggle/{habit_id}")
@@ -100,6 +105,23 @@ async def api_toggle_habit(habit_id: int):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# Webhook для Telegram (используется при WEBHOOK_BASE_URL) — один инстанс, без Conflict
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    bot = getattr(request.app.state, "bot", None)
+    dp = getattr(request.app.state, "dp", None)
+    if not bot or not dp:
+        raise HTTPException(500, "Bot not configured for webhook")
+    from aiogram.types import Update
+    try:
+        body = await request.json()
+        update = Update.model_validate(body, context={"bot": bot})
+        await dp.feed_update(bot, update)
+    except Exception as e:
+        raise HTTPException(400, detail=str(e))
+    return {"ok": True}
 
 
 # Раздача веб-приложения с того же хоста (убирает "failed to fetch")
