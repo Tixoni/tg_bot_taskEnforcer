@@ -1,6 +1,6 @@
 import asyncio
 import logging
-import os  # ЭТОГО НЕ ХВАТАЛО!
+import os  # ЭТОГО ИМПОРТА НЕ ХВАТАЛО!
 import uvicorn
 from aiogram import Bot, Dispatcher
 from config import TOKEN
@@ -19,19 +19,16 @@ async def main():
     bot = Bot(token=TOKEN)
     dp = Dispatcher()
     
-    # Получаем порт от Railway
+    # Получаем порт от Railway (автоматически)
     port = int(os.environ.get("PORT", 8000))
     
-    # Запускаем бота фоновой задачей
     bot_task = asyncio.create_task(start_bot(bot, dp))
     
-    # Настраиваем сервер
+    # Используем переменную port
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
     
-    logging.info(f"Starting server on port {port}")
-    
-    # Запускаем сервер и ждем завершения
+    logging.info(f"Server starting on port {port}")
     await server.serve()
     await bot_task
 
