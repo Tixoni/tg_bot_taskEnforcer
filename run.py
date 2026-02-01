@@ -8,8 +8,11 @@ from app.handlers import router
 from app.database import init_db
 from app.myapi import app  
 
+
 async def start_bot(bot, dp):
     dp.include_router(router)
+    # drop_pending_updates=True удалит сообщения, пришедшие пока бот был выключен
+    await bot.delete_webhook(drop_pending_updates=True) 
     await dp.start_polling(bot)
 
 async def main():
