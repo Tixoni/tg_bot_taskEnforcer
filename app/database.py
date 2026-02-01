@@ -7,10 +7,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set")
 
-# Railway Postgres часто требует SSL
 if "sslmode" not in DATABASE_URL and "railway" in DATABASE_URL.lower():
     DATABASE_URL += "&sslmode=require" if "?" in DATABASE_URL else "?sslmode=require"
-
 
 def get_connection():
     return psycopg.connect(
@@ -19,11 +17,9 @@ def get_connection():
         connect_timeout=10,
     )
 
-
 def init_db():
     with get_connection() as conn:
         with conn.cursor() as cur:
-
             # USERS
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -47,30 +43,10 @@ def init_db():
                 );
             """)
 
-            # HABITS
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS habits (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    title TEXT NOT NULL,
-                    completed_date DATE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (tg_id)
-                        ON DELETE CASCADE
-                );
-            """)
-
-            # Индексы (очень желательно)
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_tasks_user_id
                 ON tasks(user_id);
             """)
-
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_habits_user_id
-                ON habits(user_id);
-            """)
-
 
 # ================= USERS =================
 
@@ -83,7 +59,6 @@ def add_user(tg_id: int, username: str):
                 ON CONFLICT (tg_id) DO NOTHING;
             """, (tg_id, username))
 
-
 # ================= TASKS =================
 
 def add_task(user_id: int, title: str):
@@ -93,7 +68,6 @@ def add_task(user_id: int, title: str):
                 INSERT INTO tasks (user_id, title)
                 VALUES (%s, %s);
             """, (user_id, title))
-
 
 def get_user_tasks(user_id: int):
     with get_connection() as conn:
@@ -106,7 +80,6 @@ def get_user_tasks(user_id: int):
             """, (user_id,))
             return cur.fetchall()
 
-
 def toggle_task_status(task_id: int):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -115,42 +88,3 @@ def toggle_task_status(task_id: int):
                 SET is_completed = NOT is_completed
                 WHERE id = %s;
             """, (task_id,))
-
-
-# ================= HABITS =================
-
-def add_habit(user_id: int, title: str):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO habits (user_id, title)
-                VALUES (%s, %s);
-            """, (user_id, title))
-
-
-def get_user_habits(user_id: int):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    id,
-                    title,
-                    COALESCE(completed_date = CURRENT_DATE, false) AS is_completed_today
-                FROM habits
-                WHERE user_id = %s
-                ORDER BY id DESC;
-            """, (user_id,))
-            return cur.fetchall()
-
-
-def toggle_habit_today(habit_id: int):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE habits
-                SET completed_date = CASE
-                    WHEN completed_date = CURRENT_DATE THEN NULL
-                    ELSE CURRENT_DATE
-                END
-                WHERE id = %s;
-            """, (habit_id,))

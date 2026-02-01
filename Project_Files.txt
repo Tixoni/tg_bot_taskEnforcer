@@ -1,4 +1,4 @@
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\requirements.txt]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\requirements.txt]
 [Размер: 111 байт]
 [Дата изменения: 2026-01-31 19:51:52.989718]
 
@@ -10,87 +10,178 @@ requests==2.32.3
 psycopg[binary]==3.1.18
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\runtime.txt]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\runtime.txt]
 [Размер: 11 байт]
 [Дата изменения: 2026-01-31 17:33:15.106470]
 
 python-3.12
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\script.js]
-[Размер: 3121 байт]
-[Дата изменения: 2026-01-31 18:31:26.429208]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\script.js]
+[Размер: 10348 байт]
+[Дата изменения: 2026-02-01 12:00:09.961355]
 
-const API_BASE_URL = "https://tgbottaskenforcer-production.up.railway.app";
+// API: тот же хост по умолчанию. Если открываете не с сервера — укажите <meta name="api-base" content="https://ваш-сервер.railway.app"> в index.html
+const API_BASE_URL = (() => {
+    const m = document.querySelector('meta[name="api-base"]');
+    const url = m && m.getAttribute("content") && m.getAttribute("content").trim();
+    return url || "";
+})();
 
-const tg = window.Telegram.WebApp;
-tg.ready();
-tg.expand();
+const tg = window.Telegram?.WebApp;
 
-const tgUser = tg.initDataUnsafe.user;
-
-if (!tgUser?.id) {
-    tg.showAlert("Не удалось получить данные Telegram");
-    throw new Error("No Telegram user");
+// Показать сообщение на странице. showAlert/showPopup в Web App 6.0 не поддерживаются — не вызываем их вообще
+function showMessage(msg) {
+    const errEl = document.getElementById("init-error");
+    if (errEl) {
+        errEl.textContent = msg;
+        errEl.classList.remove("hidden");
+        setTimeout(() => errEl.classList.add("hidden"), 5000);
+    }
 }
 
-const userId = tgUser.id;
-const userName =
-    tgUser.username ||
-    tgUser.first_name ||
-    "TelegramUser";
+// Безопасное получение данных пользователя; режим без Telegram для теста
+let userId, userName;
+if (tg?.initDataUnsafe?.user) {
+    const u = tg.initDataUnsafe.user;
+    userId = u.id;
+    userName = u.username || u.first_name || "User";
+    tg.ready();
+    tg.expand();
+} else {
+    userId = 0;
+    userName = "TestUser";
+    if (tg) {
+        tg.ready();
+        showMessage("Данные Telegram не получены. Работа в тестовом режиме.");
+    }
+}
 
-// === АВТО-РЕГИСТРАЦИЯ ===
+// Выполнить fetch с одним повтором при сетевой ошибке (холодный старт сервера)
+async function fetchWithRetry(url, options, retries = 1) {
+    try {
+        return await fetch(url, options);
+    } catch (e) {
+        if (retries > 0 && (e.name === "TypeError" || e.message?.includes("fetch"))) {
+            await new Promise(r => setTimeout(r, 2500));
+            return fetch(url, options);
+        }
+        throw e;
+    }
+}
+
+// === Инициализация ===
 (async function init() {
     try {
-        await fetch(`${API_BASE_URL}/api/register`, {
+        const url = `${API_BASE_URL}/api/register`;
+        const res = await fetchWithRetry(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                tg_id: userId,
-                name: userName
-            })
+            body: JSON.stringify({ tg_id: userId, name: userName })
         });
 
-        showTasksScreen();
+        if (!res.ok) {
+            const errorText = await res.text();
+            throw new Error(errorText || `Ошибка сервера ${res.status}`);
+        }
 
+        await loadTasks();
+        await loadHabits();
     } catch (e) {
-        console.error(e);
-        tg.showAlert("Не удалось подключиться к серверу");
+        console.error("Initialization error:", e);
+        const isNetwork = !e.message || e.message === "Failed to fetch" || (e.name === "TypeError" && e.message?.includes("fetch"));
+        let msg;
+        if (isNetwork) {
+            msg = "Нет связи с сервером. Откройте приложение из меню бота (Web App). Проверьте интернет и что URL бота совпадает с сервером.";
+        } else {
+            try {
+                const j = JSON.parse(e.message);
+                msg = "Сервер: " + (j.detail || e.message);
+            } catch (_) {
+                msg = "Сервер: " + (e.message || "ошибка");
+            }
+        }
+        showMessage(msg);
+        const errEl = document.getElementById("init-error");
+        if (errEl) errEl.classList.remove("hidden");
     }
 })();
 
+// === Навигация ===
+function switchTab(tab) {
+    const tasksScreen = document.getElementById('tasks-screen');
+    const habitsScreen = document.getElementById('habits-screen');
+    const btnTasks = document.getElementById('btn-tasks');
+    const btnHabits = document.getElementById('btn-habits');
+
+    if (!tasksScreen || !habitsScreen) return; // Защита от ошибок DOM
+
+    if (tab === 'tasks') {
+        tasksScreen.classList.remove('hidden');
+        habitsScreen.classList.add('hidden');
+        btnTasks.classList.add('active');
+        btnHabits.classList.remove('active');
+        loadTasks();
+    } else {
+        tasksScreen.classList.add('hidden');
+        habitsScreen.classList.remove('hidden');
+        btnTasks.classList.remove('active');
+        btnHabits.classList.add('active');
+        loadHabits();
+    }
+    
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+}
+
+// Экранирование HTML для безопасного отображения заголовков
+function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Создание HTML для одной задачи или привычки (используется в loadTasks)
+function createItemHTML(item, type) {
+    const isTask = type === "task";
+    const completed = isTask ? item.is_completed : item.is_completed_today;
+    const borderClass = isTask ? "border-blue-600" : "border-orange-500";
+    const toggleFn = isTask ? `toggleTask(${item.id})` : `toggleHabit(${item.id})`;
+    const title = escapeHtml(item.title || "");
+    return `
+        <div class="card p-4 rounded-xl flex items-center justify-between shadow-sm mb-2 border-l-4 ${borderClass}">
+            <span class="${completed ? "line-through opacity-50" : ""} font-bold">${title}</span>
+            <input type="checkbox" ${completed ? "checked" : ""} onclick="${toggleFn}">
+        </div>`;
+}
+
 // ================= TASKS =================
+
 async function loadTasks() {
     const list = document.getElementById("tasks-list");
+    if (!list) return;
 
     try {
-        const res = await fetch(`${API_BASE_URL}/api/tasks/${userId}`);
-        if (!res.ok) throw new Error("Load failed");
+        const [tRes, hRes] = await Promise.all([
+            fetch(`${API_BASE_URL}/api/tasks/${userId}`),
+            fetch(`${API_BASE_URL}/api/habits/${userId}`)
+        ]);
 
-        const tasks = await res.json();
+        if (!tRes.ok) throw new Error("Не удалось загрузить задачи");
+        if (!hRes.ok) throw new Error("Не удалось загрузить привычки");
+
+        const tasks = await tRes.json();
+        const habits = await hRes.json();
+
         list.innerHTML = "";
 
-        tasks.forEach(task => {
-            const div = document.createElement("div");
-            div.className =
-                "card p-4 rounded-xl flex items-center justify-between shadow-sm";
+        if (!Array.isArray(tasks)) throw new Error("Некорректный ответ API: задачи");
+        if (!Array.isArray(habits)) throw new Error("Некорректный ответ API: привычки");
 
-            div.innerHTML = `
-                <span class="${task.is_completed ? "task-completed" : ""}">
-                    ${task.title}
-                </span>
-                <input type="checkbox"
-                    ${task.is_completed ? "checked" : ""}
-                    onclick="toggleTask(${task.id})">
-            `;
-
-            list.appendChild(div);
-        });
-
+        tasks.forEach(t => list.insertAdjacentHTML("beforeend", createItemHTML(t, "task")));
+        habits.forEach(h => list.insertAdjacentHTML("beforeend", createItemHTML(h, "habit")));
     } catch (e) {
-        console.error(e);
-        tg.showAlert("Ошибка загрузки задач");
+        console.error("Load tasks error:", e);
+        showMessage(e.message || "Ошибка загрузки данных");
     }
 }
 
@@ -100,88 +191,163 @@ async function addNewTask() {
     if (!title) return;
 
     try {
-        await fetch(`${API_BASE_URL}/api/tasks/add`, {
+        const res = await fetchWithRetry(`${API_BASE_URL}/api/tasks/add`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_id: userId, title })
+            body: JSON.stringify({ user_id: userId, title: title })
         });
-
-        input.value = "";
+        if (res.ok) {
+            input.value = "";
+        } else {
+            const j = await res.json().catch(() => ({}));
+            showMessage("Не удалось добавить задачу. " + (j.detail || res.status));
+        }
         loadTasks();
-
     } catch (e) {
-        console.error(e);
-        tg.showAlert("Ошибка добавления задачи");
+        showMessage("Нет связи. Проверьте интернет.");
     }
 }
 
 async function toggleTask(taskId) {
     try {
-        await fetch(`${API_BASE_URL}/api/tasks/toggle/${taskId}`, {
-            method: "POST"
-        });
-
-        tg.HapticFeedback?.impactOccurred("light");
-        loadTasks();
-
+        const res = await fetch(`${API_BASE_URL}/api/tasks/toggle/${taskId}`, { method: "POST" });
+        if (res.ok) {
+            if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
+            loadTasks();
+        }
     } catch (e) {
         console.error(e);
-        tg.showAlert("Ошибка изменения задачи");
     }
 }
 
-function showTasksScreen() {
-    document.getElementById("tasks-screen").classList.remove("hidden");
-    loadTasks();
+// ================= HABITS =================
+
+async function loadHabits() {
+    const list = document.getElementById("habits-list");
+    if (!list) return;
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/habits/${userId}`);
+        if (!res.ok) throw new Error("Не удалось загрузить привычки");
+        const habits = await res.json();
+        list.innerHTML = "";
+
+        if (!Array.isArray(habits)) throw new Error("Некорректный ответ API: привычки");
+
+        habits.forEach(habit => {
+            const div = document.createElement("div");
+            div.className = "card p-4 rounded-xl flex items-center justify-between shadow-sm mb-2 border-l-4 border-orange-500";
+            div.innerHTML = `
+                <span class="${habit.is_completed_today ? "line-through opacity-50" : ""} font-bold">${escapeHtml(habit.title || "")}</span>
+                <input type="checkbox" ${habit.is_completed_today ? "checked" : ""} 
+                       onclick="toggleHabit(${habit.id})">
+            `;
+            list.appendChild(div);
+        });
+    } catch (e) {
+        console.error("Load habits error:", e);
+        showMessage(e.message || "Ошибка загрузки привычек");
+    }
 }
 
+async function addNewHabit() {
+    const input = document.getElementById("habit-input");
+    const title = input.value.trim();
+    if (!title) return;
+
+    try {
+        const res = await fetchWithRetry(`${API_BASE_URL}/api/habits/add`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: userId, title: title })
+        });
+        if (res.ok) {
+            input.value = "";
+        } else {
+            const j = await res.json().catch(() => ({}));
+            showMessage("Не удалось добавить привычку. " + (j.detail || res.status));
+        }
+        loadHabits();
+    } catch (e) {
+        showMessage("Нет связи. Проверьте интернет.");
+    }
+}
+
+async function toggleHabit(habitId) {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/habits/toggle/${habitId}`, { method: "POST" });
+        if (res.ok) {
+            if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+            loadHabits();
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\index.html]
-[Размер: 1094 байт]
-[Дата изменения: 2026-01-31 18:32:03.605098]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\index.html]
+[Размер: 2529 байт]
+[Дата изменения: 2026-02-01 12:00:09.958317]
 
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Укажите content="https://ваш-сервер.railway.app" если приложение открыто не с того же хоста -->
+    <meta name="api-base" content="">
     <title>Task Enforcer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
-<body class="p-4">
-
-    <div id="tasks-screen" class="max-w-md mx-auto hidden">
-        <h1 class="text-xl font-bold mb-4">
-            Твои задачи
-        </h1>
-
+<body class="p-4 pb-24">
+    <div id="init-error" class="hidden max-w-md mx-auto p-4 mb-4 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 text-sm">
+        Нет связи с сервером. Откройте приложение из меню бота (Web App) и проверьте интернет.
+    </div>
+    <div id="tasks-screen" class="max-w-md mx-auto">
+        <h1 class="text-2xl font-bold mb-4">Сегодня</h1>
+        
         <div class="flex gap-2 mb-6">
-            <input type="text" id="task-input"
-                placeholder="Что нужно сделать?"
-                class="flex-1 px-4 py-2 border rounded-lg text-black outline-none">
-            <button onclick="addNewTask()"
-                class="bg-green-600 text-white px-4 py-2 rounded-lg font-bold">
-                +
-            </button>
+            <input type="text" id="task-input" placeholder="Что нужно сделать?" 
+                   class="flex-1 px-4 py-2 border rounded-lg text-black outline-none">
+            <button onclick="addNewTask()" class="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold">+</button>
         </div>
 
         <div id="tasks-list" class="space-y-3"></div>
     </div>
 
+    <div id="habits-screen" class="max-w-md mx-auto hidden">
+        <h1 class="text-2xl font-bold mb-4">Привычки</h1>
+        
+        <div class="flex gap-2 mb-6">
+            <input type="text" id="habit-input" placeholder="Новая привычка..." 
+                   class="flex-1 px-4 py-2 border rounded-lg text-black outline-none">
+            <button onclick="addNewHabit()" class="bg-orange-500 text-white px-4 py-2 rounded-lg font-bold">+</button>
+        </div>
+
+        <div id="habits-list" class="space-y-3"></div>
+    </div>
+
+    <nav class="fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around py-3 shadow-lg z-50">
+        <button onclick="switchTab('tasks')" class="nav-btn active" id="btn-tasks">
+            <span class="block text-xs">Задачи</span>
+        </button>
+        <button onclick="switchTab('habits')" class="nav-btn" id="btn-habits">
+            <span class="block text-xs">Привычки</span>
+        </button>
+    </nav>
+
     <script src="script.js"></script>
 </body>
-
 </html>
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\style.css]
-[Размер: 519 байт]
-[Дата изменения: 2026-01-29 14:48:13.284878]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\style.css]
+[Размер: 860 байт]
+[Дата изменения: 2026-02-01 12:00:09.961355]
 
-/* Использование цветов темы Telegram для нативности */
 body {
     background-color: var(--tg-theme-bg-color, #f5f5f5);
     color: var(--tg-theme-text-color, #222);
@@ -196,13 +362,34 @@ body {
     opacity: 0.5;
 }
 
-/* Кастомный чекбокс для красоты */
+/* Нижняя панель */
+nav {
+    background-color: var(--tg-theme-secondary-bg-color, #ffffff);
+    border-top: 1px solid rgba(0,0,0,0.1);
+}
+
+.nav-btn {
+    color: var(--tg-theme-hint-color, #999);
+    font-weight: 500;
+}
+
+.nav-btn.active {
+    color: var(--tg-theme-button-color, #2481cc);
+}
+
+/* Привычки в стиле TickTick */
+.habit-card {
+    border-left: 4px solid #f97316; /* Оранжевый акцент */
+}
+
 input[type="checkbox"] {
     accent-color: var(--tg-theme-button-color, #2481cc);
+    width: 20px;
+    height: 20px;
 }
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\config.py]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\config.py]
 [Размер: 47 байт]
 [Дата изменения: 2026-01-31 17:18:53.209299]
 
@@ -211,7 +398,7 @@ import os
 TOKEN = os.getenv("BOT_TOKEN", "")
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\Copy_Files_POSSIBLE_DANGER_RUN_ONLY_HERE.py]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\Copy_Files_POSSIBLE_DANGER_RUN_ONLY_HERE.py]
 [Размер: 5446 байт]
 [Дата изменения: 2026-01-31 17:28:36.274893]
 
@@ -339,7 +526,7 @@ if __name__ == '__main__':
     sys.exit(main())
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\run.py]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\run.py]
 [Размер: 1190 байт]
 [Дата изменения: 2026-01-31 17:26:37.187359]
 
@@ -385,9 +572,9 @@ if __name__ == "__main__":
         print("Exit")
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\database.py]
-[Размер: 4612 байт]
-[Дата изменения: 2026-01-31 20:13:38.748143]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\database.py]
+[Размер: 3676 байт]
+[Дата изменения: 2026-02-01 12:07:23.323332]
 
 import os
 import psycopg
@@ -398,11 +585,16 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set")
 
+# Railway Postgres часто требует SSL
+if "sslmode" not in DATABASE_URL and "railway" in DATABASE_URL.lower():
+    DATABASE_URL += "&sslmode=require" if "?" in DATABASE_URL else "?sslmode=require"
+
 
 def get_connection():
     return psycopg.connect(
         DATABASE_URL,
-        row_factory=dict_row
+        row_factory=dict_row,
+        connect_timeout=10,
     )
 
 
@@ -503,47 +695,10 @@ def toggle_task_status(task_id: int):
             """, (task_id,))
 
 
-# ================= HABITS =================
-
-def add_habit(user_id: int, title: str):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO habits (user_id, title)
-                VALUES (%s, %s);
-            """, (user_id, title))
-
-
-def get_user_habits(user_id: int):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    id,
-                    title,
-                    completed_date = CURRENT_DATE AS is_completed_today
-                FROM habits
-                WHERE user_id = %s
-                ORDER BY id DESC;
-            """, (user_id,))
-            return cur.fetchall()
-
-
-def toggle_habit_today(habit_id: int):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE habits
-                SET completed_date = CASE
-                    WHEN completed_date = CURRENT_DATE THEN NULL
-                    ELSE CURRENT_DATE
-                END
-                WHERE id = %s;
-            """, (habit_id,))
 
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\handlers.py]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\handlers.py]
 [Размер: 703 байт]
 [Дата изменения: 2026-01-28 10:10:24.717264]
 
@@ -566,24 +721,29 @@ async def cmd_start(message: Message):
     await message.answer("Я заставлю тебя работать маленькая сучка!", reply_markup=keyboard)
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\inline.py]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\inline.py]
 [Размер: 0 байт]
 [Дата изменения: 2026-01-28 10:03:18.086374]
 
 
 -----
 
-[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\myapi.py]
-[Размер: 2085 байт]
-[Дата изменения: 2026-01-31 20:14:04.741632]
+[Файл: C:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\myapi.py]
+[Размер: 3303 байт]
+[Дата изменения: 2026-02-01 12:08:13.873563]
 
-from fastapi import FastAPI, HTTPException
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List
 import app.database as db
 
 app = FastAPI()
+
+# Папка web — рядом с app (родитель app = корень проекта)
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 app.add_middleware(
     CORSMiddleware,
@@ -636,38 +796,57 @@ async def register_user(user: UserRegistration):
 
 @app.post("/api/tasks/add")
 async def api_add_task(task: TaskCreate):
-    db.add_task(task.user_id, task.title)
-    return {"status": "ok"}
+    try:
+        db.add_task(task.user_id, task.title)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/tasks/{user_id}", response_model=List[TaskResponse])
 async def api_get_tasks(user_id: int):
-    return db.get_user_tasks(user_id)
+    try:
+        return db.get_user_tasks(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/tasks/toggle/{task_id}")
 async def api_toggle_task(task_id: int):
-    db.toggle_task_status(task_id)
+    try:
+        db.toggle_task_status(task_id)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Проверка работы сервера (для Railway/мониторинга)
+@app.get("/health")
+async def health():
     return {"status": "ok"}
 
 
-# ================= HABITS =================
+# Webhook для Telegram (используется при WEBHOOK_BASE_URL) — один инстанс, без Conflict
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    bot = getattr(request.app.state, "bot", None)
+    dp = getattr(request.app.state, "dp", None)
+    if not bot or not dp:
+        raise HTTPException(500, "Bot not configured for webhook")
+    from aiogram.types import Update
+    try:
+        body = await request.json()
+        update = Update.model_validate(body, context={"bot": bot})
+        await dp.feed_update(bot, update)
+    except Exception as e:
+        raise HTTPException(400, detail=str(e))
+    return {"ok": True}
 
-@app.post("/api/habits/add")
-async def api_add_habit(habit: HabitCreate):
-    db.add_habit(habit.user_id, habit.title)
-    return {"status": "ok"}
 
-
-@app.get("/api/habits/{user_id}", response_model=List[HabitResponse])
-async def api_get_habits(user_id: int):
-    return db.get_user_habits(user_id)
-
-
-@app.post("/api/habits/toggle/{habit_id}")
-async def api_toggle_habit(habit_id: int):
-    db.toggle_habit_today(habit_id)
-    return {"status": "ok"}
+# Раздача веб-приложения с того же хоста (убирает "failed to fetch")
+# Подключать после всех /api маршрутов, чтобы они имели приоритет
+if WEB_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
 
 -----
 
