@@ -29,6 +29,9 @@ class TaskResponse(BaseModel):
     title: str
     is_completed: bool
 
+
+
+
 @app.post("/api/register")
 async def register_user(user: UserRegistration):
     try:
@@ -62,6 +65,25 @@ async def api_toggle_task(task_id: int):
 
 @app.get("/health")
 async def health():
+    return {"status": "ok"}
+
+
+class HabitCreate(BaseModel):
+    user_id: int
+    title: str
+
+@app.post("/api/habits/add")
+async def api_add_habit(habit: HabitCreate):
+    db.add_habit(habit.user_id, habit.title)
+    return {"status": "ok"}
+
+@app.get("/api/habits/{user_id}")
+async def api_get_habits(user_id: int):
+    return db.get_user_habits(user_id)
+
+@app.post("/api/habits/toggle/{habit_id}")
+async def api_toggle_habit(habit_id: int):
+    db.toggle_habit_status(habit_id)
     return {"status": "ok"}
 
 if WEB_DIR.exists():

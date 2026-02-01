@@ -1,8 +1,12 @@
 import asyncio
 import logging
-import os  # ЭТОГО ИМПОРТА НЕ ХВАТАЛО!
+import os 
 import uvicorn
 from aiogram import Bot, Dispatcher
+from datetime import datetime, timedelta
+from app.database import reset_habits_db
+
+
 from config import TOKEN
 from app.handlers import router
 from app.database import init_db
@@ -14,6 +18,19 @@ async def start_bot(bot, dp):
     # drop_pending_updates=True удалит сообщения, пришедшие пока бот был выключен
     await bot.delete_webhook(drop_pending_updates=True) 
     await dp.start_polling(bot)
+
+
+async def schedule_daily_reset():
+    while True:
+        now = datetime.now()
+        # Вычисляем время до следующей полночи
+        tomorrow = datetime.combine(now.date() + timedelta(days=1), datetime.min.time())
+        seconds_until_midnight = (tomorrow - now).total_seconds()
+        
+        await asyncio.sleep(seconds_until_midnight)
+        reset_habits_db()
+        logging.info("Habits status reset for all users.")
+
 
 async def main():
     init_db()

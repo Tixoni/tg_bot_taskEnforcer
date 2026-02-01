@@ -40,6 +40,7 @@ async function fetchWithRetry(url, options, retries = 1) {
     }
 }
 
+// Инициализация при загрузке
 (async function init() {
     try {
         const url = `${API_BASE_URL}/api/register`;
@@ -48,7 +49,9 @@ async function fetchWithRetry(url, options, retries = 1) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ tg_id: userId, name: userName })
         });
-        await loadTasks();
+        
+        // Загружаем оба списка параллельно
+        await Promise.all([loadTasks(), loadHabits()]);
     } catch (e) {
         console.error("Initialization error:", e);
         showMessage("Ошибка подключения к серверу.");
@@ -61,28 +64,37 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-function createItemHTML(item) {
-    const completed = item.is_completed;
+/**
+ * Универсальная функция создания HTML для элемента
+ * @param {Object} item - объект задачи или привычки
+ * @param {string} type - 'task' или 'habit'
+ */
+function createItemHTML(item, type) {
+    const isCompleted = type === 'task' ? item.is_completed : item.is_complete_today;
+    const borderClass = type === 'task' ? 'border-blue-600' : 'border-orange-500 habit-card';
+    const clickFn = type === 'task' ? `toggleTask(${item.id})` : `toggleHabit(${item.id})`;
     const title = escapeHtml(item.title || "");
+
     return `
-        <div class="card p-4 rounded-xl flex items-center justify-between shadow-sm mb-2 border-l-4 border-blue-600 bg-white">
-            <span class="${completed ? "line-through opacity-50" : ""} font-bold">${title}</span>
-            <input type="checkbox" ${completed ? "checked" : ""} onclick="toggleTask(${item.id})">
+        <div class="card p-4 rounded-xl flex items-center justify-between shadow-sm mb-2 border-l-4 ${borderClass} bg-white">
+            <span class="${isCompleted ? "line-through opacity-50 text-gray-400" : "font-bold text-gray-800"}">${title}</span>
+            <input type="checkbox" ${isCompleted ? "checked" : ""} onclick="${clickFn}" class="w-5 h-5 cursor-pointer">
         </div>`;
 }
+
+// ================= ЛОГИКА ЗАДАЧ =================
 
 async function loadTasks() {
     const list = document.getElementById("tasks-list");
     if (!list) return;
     try {
         const res = await fetch(`${API_BASE_URL}/api/tasks/${userId}`);
-        if (!res.ok) throw new Error("Не удалось загрузить задачи");
+        if (!res.ok) throw new Error("Ошибка загрузки задач");
         const tasks = await res.json();
         list.innerHTML = "";
-        if (!Array.isArray(tasks)) throw new Error("Некорректный ответ API");
-        tasks.forEach(t => list.insertAdjacentHTML("beforeend", createItemHTML(t)));
+        tasks.forEach(t => list.insertAdjacentHTML("beforeend", createItemHTML(t, 'task')));
     } catch (e) {
-        showMessage(e.message || "Ошибка загрузки");
+        showMessage(e.message);
     }
 }
 
@@ -101,7 +113,7 @@ async function addNewTask() {
             loadTasks();
         }
     } catch (e) {
-        showMessage("Нет связи.");
+        showMessage("Не удалось добавить задачу.");
     }
 }
 
@@ -112,7 +124,50 @@ async function toggleTask(taskId) {
             if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
             loadTasks();
         }
+    } catch (e) { console.error(e); }
+}
+
+// ================= ЛОГИКА ПРИВЫЧЕК =================
+
+async function loadHabits() {
+    const list = document.getElementById("habits-list");
+    if (!list) return;
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/habits/${userId}`);
+        if (!res.ok) throw new Error("Ошибка загрузки привычек");
+        const habits = await res.json();
+        list.innerHTML = "";
+        habits.forEach(h => list.insertAdjacentHTML("beforeend", createItemHTML(h, 'habit')));
     } catch (e) {
-        console.error(e);
+        showMessage(e.message);
     }
+}
+
+async function addNewHabit() {
+    const input = document.getElementById("habit-input");
+    const title = input.value.trim();
+    if (!title) return;
+    try {
+        const res = await fetchWithRetry(`${API_BASE_URL}/api/habits/add`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: userId, title: title })
+        });
+        if (res.ok) {
+            input.value = "";
+            loadHabits();
+        }
+    } catch (e) {
+        showMessage("Не удалось добавить привычку.");
+    }
+}
+
+async function toggleHabit(habitId) {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/habits/toggle/${habitId}`, { method: "POST" });
+        if (res.ok) {
+            if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+            loadHabits();
+        }
+    } catch (e) { console.error(e); }
 }

@@ -48,6 +48,18 @@ def init_db():
                 ON tasks(user_id);
             """)
 
+            # HABITS
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS habits (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    title TEXT NOT NULL,
+                    is_complete_today BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (tg_id) ON DELETE CASCADE
+                );
+            """)
+
 # ================= USERS =================
 
 def add_user(tg_id: int, username: str):
@@ -88,3 +100,29 @@ def toggle_task_status(task_id: int):
                 SET is_completed = NOT is_completed
                 WHERE id = %s;
             """, (task_id,))
+
+
+# ================= TASKS =================
+
+# Функции для работы с привычками[cite: 62, 63]:
+def add_habit(user_id: int, title: str):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO habits (user_id, title) VALUES (%s, %s)", (user_id, title))
+
+def get_user_habits(user_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, title, is_complete_today FROM habits WHERE user_id = %s", (user_id,))
+            return cur.fetchall()
+
+def toggle_habit_status(habit_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE habits SET is_complete_today = NOT is_complete_today WHERE id = %s", (habit_id,))
+
+# Функция для сброса (будет вызываться сервером)[cite: 66]:
+def reset_habits_db():
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE habits SET is_complete_today = FALSE")
