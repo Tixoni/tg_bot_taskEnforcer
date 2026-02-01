@@ -86,5 +86,32 @@ async def api_toggle_habit(habit_id: int):
     db.toggle_habit_status(habit_id)
     return {"status": "ok"}
 
+
+
+# Эндпоинты удаления
+@app.delete("/api/tasks/{task_id}")
+async def api_delete_task(task_id: int):
+    db.delete_task(task_id)
+    return {"status": "ok"}
+
+@app.delete("/api/habits/{habit_id}")
+async def api_delete_habit(habit_id: int):
+    db.delete_habit(habit_id)
+    return {"status": "ok"}
+
+# Эндпоинты редактирования
+class UpdateItem(BaseModel):
+    title: str
+
+@app.post("/api/tasks/update/{task_id}")
+async def api_update_task(task_id: int, data: UpdateItem):
+    db.update_task_title(task_id, data.title)
+    return {"status": "ok"}
+
+@app.post("/api/habits/update/{habit_id}")
+async def api_update_habit(habit_id: int, data: UpdateItem):
+    db.update_habit_title(habit_id, data.title)
+    return {"status": "ok"}
+
 if WEB_DIR.exists():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")

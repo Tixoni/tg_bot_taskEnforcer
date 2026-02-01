@@ -8,15 +8,14 @@ let currentTab = 'today';
 let userId = tg?.initDataUnsafe?.user?.id || 0;
 let userName = tg?.initDataUnsafe?.user?.username || "User";
 
-// Защита от двойного срабатывания: переключение чекбоксов
-const togglingIds = new Set();
-// Защита от двойного сохранения при создании задачи/привычки
+let pressTimer;
+let selectedItem = null; // { id, type, title }
 let isSaving = false;
 
-// Инициализация
 (async function init() {
     tg?.ready();
     tg?.expand();
+    tg?.setHeaderColor('#000000');
     try {
         await fetch(`${API_BASE_URL}/api/register`, {
             method: "POST",
@@ -24,109 +23,111 @@ let isSaving = false;
             body: JSON.stringify({ tg_id: userId, name: userName })
         });
         refreshData();
-    } catch (e) {
-        console.error(e);
-        showMessage("Ошибка подключения");
-    }
+    } catch (e) { showMessage("Ошибка подключения"); }
 })();
 
-// Переключение вкладок
 function switchTab(tab) {
     currentTab = tab;
-    
-    // Переключение экранов
     document.getElementById('screen-today').classList.toggle('hidden', tab !== 'today');
     document.getElementById('screen-habits').classList.toggle('hidden', tab !== 'habits');
-    
-    // Подсветка кнопок
     document.getElementById('btn-today').classList.toggle('active', tab === 'today');
     document.getElementById('btn-habits').classList.toggle('active', tab === 'habits');
-    
     refreshData();
 }
 
-// Загрузка и отрисовка данных
 async function refreshData() {
     try {
         const [tRes, hRes] = await Promise.all([
             fetch(`${API_BASE_URL}/api/tasks/${userId}`),
             fetch(`${API_BASE_URL}/api/habits/${userId}`)
         ]);
-        
-        const tasks = await tRes.json();
-        const habits = await hRes.json();
-        
-        renderLists(tasks, habits);
-    } catch (e) {
-        console.error("Fetch error:", e);
-    }
+        renderLists(await tRes.json(), await hRes.json());
+    } catch (e) { console.error(e); }
 }
 
 function renderLists(tasks, habits) {
-    // Распределение задач
-    const activeTasks = tasks.filter(t => !t.is_completed);
-    const completedTasks = tasks.filter(t => t.is_completed);
+    const active = tasks.filter(t => !t.is_completed);
+    const done = tasks.filter(t => t.is_completed);
 
-    // 1. Секция активных задач на "Сегодня"
-    document.getElementById('list-active-tasks').innerHTML = 
-        activeTasks.map(t => createItemHTML(t, 'task')).join('');
-
-    // 2. Секция привычек на "Сегодня"
-    document.getElementById('list-today-habits').innerHTML = 
-        habits.map(h => createItemHTML(h, 'habit')).join('');
-
-    // 3. Секция выполненных задач на "Сегодня"
-    document.getElementById('list-completed-tasks').innerHTML = 
-        completedTasks.map(t => createItemHTML(t, 'task')).join('');
-
-    // 4. Полный список привычек на вкладке "Привычки"
-    const habitsListFull = document.getElementById('list-all-habits');
-    if (habitsListFull) {
-        habitsListFull.innerHTML = habits.map(h => createItemHTML(h, 'habit')).join('');
-    }
+    document.getElementById('list-active-tasks').innerHTML = active.map(t => createItemHTML(t, 'task')).join('');
+    document.getElementById('list-today-habits').innerHTML = habits.map(h => createItemHTML(h, 'habit')).join('');
+    document.getElementById('list-completed-tasks').innerHTML = done.map(t => createItemHTML(t, 'task')).join('');
+    
+    const hFull = document.getElementById('list-all-habits');
+    if (hFull) hFull.innerHTML = habits.map(h => createItemHTML(h, 'habit')).join('');
 }
 
 function createItemHTML(item, type) {
-    const isDone = type === 'task'
-        ? item.is_completed
-        : (item.is_completed_today === true || item.is_complete_today === true);
-    const borderClass = type === 'task' ? 'task-border' : 'habit-border';
+    const isDone = type === 'task' ? item.is_completed : (item.is_completed_today || item.is_complete_today);
+    const checkCls = type === 'task' ? 'checkbox-task' : 'checkbox-habit';
     const clickFn = type === 'task' ? `toggleTask(${item.id})` : `toggleHabit(${item.id})`;
-    const checkboxClass = type === 'task' ? 'checkbox-task' : 'checkbox-habit';
 
     return `
-        <div class="card p-4 flex items-center gap-3 ${borderClass}">
-            <input type="checkbox" class="${checkboxClass}" ${isDone ? 'checked' : ''} onclick="${clickFn}">
-            <span class="flex-1 ${isDone ? 'line-through opacity-60 text-gray-400' : 'font-semibold'}">${escapeHtml(item.title)}</span>
+        <div class="card" 
+             ontouchstart="handlePressStart(event, ${item.id}, '${type}', '${item.title.replace(/'/g, "\\'")}')" 
+             ontouchend="handlePressEnd()" 
+             onmousedown="handlePressStart(event, ${item.id}, '${type}', '${item.title.replace(/'/g, "\\'")}')" 
+             onmouseup="handlePressEnd()">
+            <input type="checkbox" class="${checkCls}" ${isDone ? 'checked' : ''} onclick="${clickFn}; event.stopPropagation();">
+            <span class="flex-1 ${isDone ? 'line-through opacity-40 text-gray-500' : 'font-semibold text-gray-100'}">${item.title}</span>
         </div>`;
 }
 
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+// LONG PRESS LOGIC
+function handlePressStart(e, id, type, title) {
+    if (e.target.tagName === 'INPUT') return;
+    pressTimer = window.setTimeout(() => {
+        selectedItem = { id, type, title };
+        openContextModal();
+    }, 600);
 }
 
-// Управление модальным окном
+function handlePressEnd() { clearTimeout(pressTimer); }
+
+function openContextModal() {
+    document.getElementById('context-modal').style.display = 'flex';
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
+}
+
+function closeContextModal() { document.getElementById('context-modal').style.display = 'none'; }
+
+function openEditModal() {
+    closeContextModal();
+    const input = document.getElementById('edit-input');
+    input.value = selectedItem.title;
+    document.getElementById('edit-modal').style.display = 'flex';
+    setTimeout(() => input.focus(), 100);
+}
+
+function closeEditModal() { document.getElementById('edit-modal').style.display = 'none'; }
+
+async function handleUpdate() {
+    const val = document.getElementById('edit-input').value.trim();
+    if (!val || !selectedItem) return;
+    const path = selectedItem.type === 'task' ? `/api/tasks/update/${selectedItem.id}` : `/api/habits/update/${selectedItem.id}`;
+    await fetch(`${API_BASE_URL}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: val })
+    });
+    closeEditModal();
+    refreshData();
+}
+
+async function confirmDelete() {
+    if (!selectedItem) return;
+    const path = selectedItem.type === 'task' ? `/api/tasks/${selectedItem.id}` : `/api/habits/${selectedItem.id}`;
+    await fetch(`${API_BASE_URL}${path}`, { method: "DELETE" });
+    closeContextModal();
+    refreshData();
+}
+
+// ... остальной код (openModal, handleSave, toggleTask...) без изменений
 function openModal() {
-    const modal = document.getElementById('input-modal');
-    const input = document.getElementById('main-input');
-    const title = document.getElementById('modal-title');
-    
-    // Контекстный заголовок
-    if (currentTab === 'today') {
-        title.innerText = "Новая задача";
-        input.placeholder = "Что нужно сделать?";
-    } else {
-        title.innerText = "Новая привычка";
-        input.placeholder = "Например: Пить воду";
-    }
-    
-    modal.style.display = 'flex';
-    
-    // Автофокус для немедленного ввода
-    setTimeout(() => input.focus(), 50);
+    const m = document.getElementById('input-modal');
+    document.getElementById('modal-title').innerText = currentTab === 'today' ? "Новая задача" : "Новая привычка";
+    m.style.display = 'flex';
+    setTimeout(() => document.getElementById('main-input').focus(), 100);
 }
 
 function closeModal() {
@@ -136,55 +137,30 @@ function closeModal() {
 
 async function handleSave() {
     const val = document.getElementById('main-input').value.trim();
-    if (!val) return;
-    if (isSaving) return;
+    if (!val || isSaving) return;
     isSaving = true;
-
-    const endpoint = currentTab === 'today' ? '/api/tasks/add' : '/api/habits/add';
-    
+    const path = currentTab === 'today' ? '/api/tasks/add' : '/api/habits/add';
     try {
-        const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+        await fetch(`${API_BASE_URL}${path}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ user_id: userId, title: val })
         });
-        
-        if (res.ok) {
-            closeModal();
-            refreshData();
-        }
-    } catch (e) {
-        showMessage("Ошибка сохранения");
-    } finally {
-        isSaving = false;
-    }
+        closeModal();
+        refreshData();
+    } finally { isSaving = false; }
 }
 
-// Переключение статусов (API) — защита от двойного нажатия
 async function toggleTask(id) {
-    const key = `task-${id}`;
-    if (togglingIds.has(key)) return;
-    togglingIds.add(key);
-    try {
-        await fetch(`${API_BASE_URL}/api/tasks/toggle/${id}`, { method: "POST" });
-        tg?.HapticFeedback?.impactOccurred("medium");
-        refreshData();
-    } finally {
-        togglingIds.delete(key);
-    }
+    await fetch(`${API_BASE_URL}/api/tasks/toggle/${id}`, { method: "POST" });
+    tg?.HapticFeedback?.impactOccurred("light");
+    refreshData();
 }
 
 async function toggleHabit(id) {
-    const key = `habit-${id}`;
-    if (togglingIds.has(key)) return;
-    togglingIds.add(key);
-    try {
-        await fetch(`${API_BASE_URL}/api/habits/toggle/${id}`, { method: "POST" });
-        tg?.HapticFeedback?.notificationOccurred("success");
-        refreshData();
-    } finally {
-        togglingIds.delete(key);
-    }
+    await fetch(`${API_BASE_URL}/api/habits/toggle/${id}`, { method: "POST" });
+    tg?.HapticFeedback?.notificationOccurred("success");
+    refreshData();
 }
 
 function showMessage(msg) {

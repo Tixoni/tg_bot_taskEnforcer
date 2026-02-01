@@ -110,7 +110,19 @@ def delete_completed_tasks():
             deleted = cur.rowcount
     return deleted
 
+def delete_task(task_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
 
+# Редактирование
+def update_task_title(task_id: int, new_title: str):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE tasks SET title = %s WHERE id = %s", (new_title, task_id))
+
+
+# ============================ HABITS =================
 # Функции для работы с привычками
 def add_habit(user_id: int, title: str):
     with get_connection() as conn:
@@ -133,3 +145,15 @@ def reset_habits_db():
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("UPDATE habits SET is_complete_today = FALSE")
+
+
+def delete_habit(habit_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM habits WHERE id = %s", (habit_id,))
+
+
+def update_habit_title(habit_id: int, new_title: str):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE habits SET title = %s WHERE id = %s", (new_title, habit_id))
