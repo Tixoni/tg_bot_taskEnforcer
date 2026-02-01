@@ -113,5 +113,27 @@ async def api_update_habit(habit_id: int, data: UpdateItem):
     db.update_habit_title(habit_id, data.title)
     return {"status": "ok"}
 
+
+class HabitResponse(BaseModel):
+    id: int
+    title: str
+    is_complete_today: bool
+    count_complete: int
+
+@app.get("/api/habits/{user_id}", response_model=List[HabitResponse])
+async def api_get_habits(user_id: int):
+    try:
+        return db.get_user_habits(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/habits/toggle/{habit_id}")
+async def api_toggle_habit(habit_id: int):
+    try:
+        db.toggle_habit_status(habit_id)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if WEB_DIR.exists():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")

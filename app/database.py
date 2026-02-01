@@ -49,16 +49,19 @@ def init_db():
             """)
 
             # HABITS
+            # Таблица ПРИВЫЧЕК (HABITS)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS habits (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     title TEXT NOT NULL,
                     is_complete_today BOOLEAN DEFAULT FALSE,
+                    count_complete INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users (tg_id) ON DELETE CASCADE
                 );
             """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);")
 
 # ================= USERS =================
 
@@ -140,11 +143,22 @@ def toggle_habit_status(habit_id: int):
         with conn.cursor() as cur:
             cur.execute("UPDATE habits SET is_complete_today = NOT is_complete_today WHERE id = %s", (habit_id,))
 
-# Функция для сброса (будет вызываться сервером)[cite: 66]:
-def reset_habits_db():
+
+def reset_daily_habits():
+    """
+    Увеличивает count_complete на 1 для всех выполненных сегодня привычек
+    и сбрасывает маркер is_complete_today в False для всех привычек.
+    """
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("UPDATE habits SET is_complete_today = FALSE")
+            # Сначала увеличиваем счетчик у тех, кто выполнил
+            cur.execute("""
+                UPDATE habits 
+                SET count_complete = count_complete + 1 
+                WHERE is_complete_today = TRUE;
+            """)
+            # Затем сбрасываем статус для всех на следующий день
+            cur.execute("UPDATE habits SET is_complete_today = FALSE;")
 
 
 def delete_habit(habit_id: int):
