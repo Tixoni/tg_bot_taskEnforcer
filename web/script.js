@@ -1,173 +1,162 @@
 const API_BASE_URL = (() => {
     const m = document.querySelector('meta[name="api-base"]');
-    const url = m && m.getAttribute("content") && m.getAttribute("content").trim();
-    return url || "";
+    return (m && m.getAttribute("content")) || "";
 })();
 
 const tg = window.Telegram?.WebApp;
+let currentTab = 'today';
+let userId = tg?.initDataUnsafe?.user?.id || 0;
+let userName = tg?.initDataUnsafe?.user?.username || "User";
 
-function showMessage(msg) {
-    const errEl = document.getElementById("init-error");
-    if (errEl) {
-        errEl.textContent = msg;
-        errEl.classList.remove("hidden");
-        setTimeout(() => errEl.classList.add("hidden"), 5000);
-    }
-}
-
-let userId, userName;
-if (tg?.initDataUnsafe?.user) {
-    const u = tg.initDataUnsafe.user;
-    userId = u.id;
-    userName = u.username || u.first_name || "User";
-    tg.ready();
-    tg.expand();
-} else {
-    userId = 0;
-    userName = "TestUser";
-    if (tg) tg.ready();
-}
-
-async function fetchWithRetry(url, options, retries = 1) {
-    try {
-        return await fetch(url, options);
-    } catch (e) {
-        if (retries > 0 && (e.name === "TypeError" || e.message?.includes("fetch"))) {
-            await new Promise(r => setTimeout(r, 2500));
-            return fetch(url, options);
-        }
-        throw e;
-    }
-}
-
-// Инициализация при загрузке
+// Инициализация
 (async function init() {
+    tg?.ready();
+    tg?.expand();
     try {
-        const url = `${API_BASE_URL}/api/register`;
-        await fetchWithRetry(url, {
+        await fetch(`${API_BASE_URL}/api/register`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ tg_id: userId, name: userName })
         });
-        
-        // Загружаем оба списка параллельно
-        await Promise.all([loadTasks(), loadHabits()]);
+        refreshData();
     } catch (e) {
-        console.error("Initialization error:", e);
-        showMessage("Ошибка подключения к серверу.");
+        console.error(e);
+        showMessage("Ошибка подключения");
     }
 })();
 
-function escapeHtml(text) {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
+// Переключение вкладок
+function switchTab(tab) {
+    currentTab = tab;
+    
+    // Переключение экранов
+    document.getElementById('screen-today').classList.toggle('hidden', tab !== 'today');
+    document.getElementById('screen-habits').classList.toggle('hidden', tab !== 'habits');
+    
+    // Подсветка кнопок
+    document.getElementById('btn-today').classList.toggle('active', tab === 'today');
+    document.getElementById('btn-habits').classList.toggle('active', tab === 'habits');
+    
+    refreshData();
 }
 
-/**
- * Универсальная функция создания HTML для элемента
- * @param {Object} item - объект задачи или привычки
- * @param {string} type - 'task' или 'habit'
- */
+// Загрузка и отрисовка данных
+async function refreshData() {
+    try {
+        const [tRes, hRes] = await Promise.all([
+            fetch(`${API_BASE_URL}/api/tasks/${userId}`),
+            fetch(`${API_BASE_URL}/api/habits/${userId}`)
+        ]);
+        
+        const tasks = await tRes.json();
+        const habits = await hRes.json();
+        
+        renderLists(tasks, habits);
+    } catch (e) {
+        console.error("Fetch error:", e);
+    }
+}
+
+function renderLists(tasks, habits) {
+    // Распределение задач
+    const activeTasks = tasks.filter(t => !t.is_completed);
+    const completedTasks = tasks.filter(t => t.is_completed);
+
+    // 1. Секция активных задач на "Сегодня"
+    document.getElementById('list-active-tasks').innerHTML = 
+        activeTasks.map(t => createItemHTML(t, 'task')).join('');
+
+    // 2. Секция привычек на "Сегодня"
+    document.getElementById('list-today-habits').innerHTML = 
+        habits.map(h => createItemHTML(h, 'habit')).join('');
+
+    // 3. Секция выполненных задач на "Сегодня"
+    document.getElementById('list-completed-tasks').innerHTML = 
+        completedTasks.map(t => createItemHTML(t, 'task')).join('');
+
+    // 4. Полный список привычек на вкладке "Привычки"
+    const habitsListFull = document.getElementById('list-all-habits');
+    if (habitsListFull) {
+        habitsListFull.innerHTML = habits.map(h => createItemHTML(h, 'habit')).join('');
+    }
+}
+
 function createItemHTML(item, type) {
-    const isCompleted = type === 'task' ? item.is_completed : item.is_complete_today;
-    const borderClass = type === 'task' ? 'border-blue-600' : 'border-orange-500 habit-card';
+    const isDone = type === 'task' ? item.is_completed : item.is_complete_today;
+    const borderClass = type === 'task' ? 'task-border' : 'habit-border';
     const clickFn = type === 'task' ? `toggleTask(${item.id})` : `toggleHabit(${item.id})`;
-    const title = escapeHtml(item.title || "");
 
     return `
-        <div class="card p-4 rounded-xl flex items-center justify-between shadow-sm mb-2 border-l-4 ${borderClass} bg-white">
-            <span class="${isCompleted ? "line-through opacity-50 text-gray-400" : "font-bold text-gray-800"}">${title}</span>
-            <input type="checkbox" ${isCompleted ? "checked" : ""} onclick="${clickFn}" class="w-5 h-5 cursor-pointer">
+        <div class="card p-4 rounded-2xl flex items-center justify-between shadow-sm ${borderClass}">
+            <span class="${isDone ? 'line-through opacity-40 text-gray-500' : 'font-semibold'}">${item.title}</span>
+            <input type="checkbox" ${isDone ? 'checked' : ''} onclick="${clickFn}">
         </div>`;
 }
 
-// ================= ЛОГИКА ЗАДАЧ =================
-
-async function loadTasks() {
-    const list = document.getElementById("tasks-list");
-    if (!list) return;
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/tasks/${userId}`);
-        if (!res.ok) throw new Error("Ошибка загрузки задач");
-        const tasks = await res.json();
-        list.innerHTML = "";
-        tasks.forEach(t => list.insertAdjacentHTML("beforeend", createItemHTML(t, 'task')));
-    } catch (e) {
-        showMessage(e.message);
+// Управление модальным окном
+function openModal() {
+    const modal = document.getElementById('input-modal');
+    const input = document.getElementById('main-input');
+    const title = document.getElementById('modal-title');
+    
+    // Контекстный заголовок
+    if (currentTab === 'today') {
+        title.innerText = "Новая задача";
+        input.placeholder = "Что нужно сделать?";
+    } else {
+        title.innerText = "Новая привычка";
+        input.placeholder = "Например: Пить воду";
     }
+    
+    modal.style.display = 'flex';
+    
+    // Автофокус для немедленного ввода
+    setTimeout(() => input.focus(), 50);
 }
 
-async function addNewTask() {
-    const input = document.getElementById("task-input");
-    const title = input.value.trim();
-    if (!title) return;
+function closeModal() {
+    document.getElementById('input-modal').style.display = 'none';
+    document.getElementById('main-input').value = '';
+}
+
+async function handleSave() {
+    const val = document.getElementById('main-input').value.trim();
+    if (!val) return;
+
+    const endpoint = currentTab === 'today' ? '/api/tasks/add' : '/api/habits/add';
+    
     try {
-        const res = await fetchWithRetry(`${API_BASE_URL}/api/tasks/add`, {
+        const res = await fetch(`${API_BASE_URL}${endpoint}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_id: userId, title: title })
+            body: JSON.stringify({ user_id: userId, title: val })
         });
+        
         if (res.ok) {
-            input.value = "";
-            loadTasks();
+            closeModal();
+            refreshData();
         }
     } catch (e) {
-        showMessage("Не удалось добавить задачу.");
+        showMessage("Ошибка сохранения");
     }
 }
 
-async function toggleTask(taskId) {
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/tasks/toggle/${taskId}`, { method: "POST" });
-        if (res.ok) {
-            if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
-            loadTasks();
-        }
-    } catch (e) { console.error(e); }
+// Переключение статусов (API)
+async function toggleTask(id) {
+    await fetch(`${API_BASE_URL}/api/tasks/toggle/${id}`, { method: "POST" });
+    tg?.HapticFeedback?.impactOccurred("medium");
+    refreshData();
 }
 
-// ================= ЛОГИКА ПРИВЫЧЕК =================
-
-async function loadHabits() {
-    const list = document.getElementById("habits-list");
-    if (!list) return;
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/habits/${userId}`);
-        if (!res.ok) throw new Error("Ошибка загрузки привычек");
-        const habits = await res.json();
-        list.innerHTML = "";
-        habits.forEach(h => list.insertAdjacentHTML("beforeend", createItemHTML(h, 'habit')));
-    } catch (e) {
-        showMessage(e.message);
-    }
+async function toggleHabit(id) {
+    await fetch(`${API_BASE_URL}/api/habits/toggle/${id}`, { method: "POST" });
+    tg?.HapticFeedback?.notificationOccurred("success");
+    refreshData();
 }
 
-async function addNewHabit() {
-    const input = document.getElementById("habit-input");
-    const title = input.value.trim();
-    if (!title) return;
-    try {
-        const res = await fetchWithRetry(`${API_BASE_URL}/api/habits/add`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_id: userId, title: title })
-        });
-        if (res.ok) {
-            input.value = "";
-            loadHabits();
-        }
-    } catch (e) {
-        showMessage("Не удалось добавить привычку.");
-    }
-}
-
-async function toggleHabit(habitId) {
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/habits/toggle/${habitId}`, { method: "POST" });
-        if (res.ok) {
-            if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
-            loadHabits();
-        }
-    } catch (e) { console.error(e); }
+function showMessage(msg) {
+    const err = document.getElementById('init-error');
+    err.innerText = msg;
+    err.classList.remove('hidden');
+    setTimeout(() => err.classList.add('hidden'), 3000);
 }
