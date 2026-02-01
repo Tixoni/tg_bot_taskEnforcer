@@ -8,6 +8,11 @@ let currentTab = 'today';
 let userId = tg?.initDataUnsafe?.user?.id || 0;
 let userName = tg?.initDataUnsafe?.user?.username || "User";
 
+// Защита от двойного срабатывания: переключение чекбоксов
+const togglingIds = new Set();
+// Защита от двойного сохранения при создании задачи/привычки
+let isSaving = false;
+
 // Инициализация
 (async function init() {
     tg?.ready();
@@ -82,15 +87,25 @@ function renderLists(tasks, habits) {
 }
 
 function createItemHTML(item, type) {
-    const isDone = type === 'task' ? item.is_completed : item.is_complete_today;
+    const isDone = type === 'task'
+        ? item.is_completed
+        : (item.is_completed_today === true || item.is_complete_today === true);
     const borderClass = type === 'task' ? 'task-border' : 'habit-border';
     const clickFn = type === 'task' ? `toggleTask(${item.id})` : `toggleHabit(${item.id})`;
+    const checkboxClass = type === 'task' ? 'checkbox-task' : 'checkbox-habit';
 
     return `
-        <div class="card p-4 rounded-2xl flex items-center justify-between shadow-sm ${borderClass}">
-            <span class="${isDone ? 'line-through opacity-40 text-gray-500' : 'font-semibold'}">${item.title}</span>
-            <input type="checkbox" ${isDone ? 'checked' : ''} onclick="${clickFn}">
+        <div class="card p-4 flex items-center gap-3 ${borderClass}">
+            <input type="checkbox" class="${checkboxClass}" ${isDone ? 'checked' : ''} onclick="${clickFn}">
+            <span class="flex-1 ${isDone ? 'line-through opacity-60 text-gray-400' : 'font-semibold'}">${escapeHtml(item.title)}</span>
         </div>`;
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Управление модальным окном
@@ -122,6 +137,8 @@ function closeModal() {
 async function handleSave() {
     const val = document.getElementById('main-input').value.trim();
     if (!val) return;
+    if (isSaving) return;
+    isSaving = true;
 
     const endpoint = currentTab === 'today' ? '/api/tasks/add' : '/api/habits/add';
     
@@ -138,20 +155,36 @@ async function handleSave() {
         }
     } catch (e) {
         showMessage("Ошибка сохранения");
+    } finally {
+        isSaving = false;
     }
 }
 
-// Переключение статусов (API)
+// Переключение статусов (API) — защита от двойного нажатия
 async function toggleTask(id) {
-    await fetch(`${API_BASE_URL}/api/tasks/toggle/${id}`, { method: "POST" });
-    tg?.HapticFeedback?.impactOccurred("medium");
-    refreshData();
+    const key = `task-${id}`;
+    if (togglingIds.has(key)) return;
+    togglingIds.add(key);
+    try {
+        await fetch(`${API_BASE_URL}/api/tasks/toggle/${id}`, { method: "POST" });
+        tg?.HapticFeedback?.impactOccurred("medium");
+        refreshData();
+    } finally {
+        togglingIds.delete(key);
+    }
 }
 
 async function toggleHabit(id) {
-    await fetch(`${API_BASE_URL}/api/habits/toggle/${id}`, { method: "POST" });
-    tg?.HapticFeedback?.notificationOccurred("success");
-    refreshData();
+    const key = `habit-${id}`;
+    if (togglingIds.has(key)) return;
+    togglingIds.add(key);
+    try {
+        await fetch(`${API_BASE_URL}/api/habits/toggle/${id}`, { method: "POST" });
+        tg?.HapticFeedback?.notificationOccurred("success");
+        refreshData();
+    } finally {
+        togglingIds.delete(key);
+    }
 }
 
 function showMessage(msg) {

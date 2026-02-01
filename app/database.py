@@ -102,9 +102,16 @@ def toggle_task_status(task_id: int):
             """, (task_id,))
 
 
-# ================= TASKS =================
+def delete_completed_tasks():
+    """Удаляет все выполненные задачи (вызывается ежедневно в 00:00)."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM tasks WHERE is_completed = TRUE")
+            deleted = cur.rowcount
+    return deleted
 
-# Функции для работы с привычками[cite: 62, 63]:
+
+# Функции для работы с привычками
 def add_habit(user_id: int, title: str):
     with get_connection() as conn:
         with conn.cursor() as cur:

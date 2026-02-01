@@ -4,7 +4,7 @@ import os
 import uvicorn
 from aiogram import Bot, Dispatcher
 from datetime import datetime, timedelta
-from app.database import reset_habits_db
+from app.database import reset_habits_db, delete_completed_tasks
 
 
 from config import TOKEN
@@ -21,15 +21,23 @@ async def start_bot(bot, dp):
 
 
 async def schedule_daily_reset():
+    """Каждый день в 00:00 (локальное время сервера): сброс привычек и удаление выполненных задач."""
     while True:
         now = datetime.now()
-        # Вычисляем время до следующей полночи
         tomorrow = datetime.combine(now.date() + timedelta(days=1), datetime.min.time())
         seconds_until_midnight = (tomorrow - now).total_seconds()
-        
+
         await asyncio.sleep(seconds_until_midnight)
-        reset_habits_db()
-        logging.info("Habits status reset for all users.")
+        try:
+            reset_habits_db()
+            logging.info("Habits status reset for all users.")
+        except Exception as e:
+            logging.exception("Habits reset failed: %s", e)
+        try:
+            deleted = delete_completed_tasks()
+            logging.info("Deleted %d completed tasks (daily cleanup).", deleted)
+        except Exception as e:
+            logging.exception("Delete completed tasks failed: %s", e)
 
 
 async def main():
@@ -43,7 +51,8 @@ async def main():
     port = int(os.environ.get("PORT", 8000))
     
     bot_task = asyncio.create_task(start_bot(bot, dp))
-    
+    asyncio.create_task(schedule_daily_reset())
+
     # Используем переменную port
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
