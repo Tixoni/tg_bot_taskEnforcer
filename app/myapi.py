@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List
 import app.database as db
+from typing import List, Optional
 
 app = FastAPI()
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
