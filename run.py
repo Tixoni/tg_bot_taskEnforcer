@@ -6,8 +6,8 @@ from aiogram import Bot, Dispatcher
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo  # Важно: используем zoneinfo вместо pytz
 
-# Импортируем обновленный метод для привычек и метод для очистки задач
-from app.database import init_db, reset_daily_habits, delete_completed_tasks
+
+from app.database import init_db, reset_daily_habits, delete_completed_tasks, update_daily_user_stats
 from config import TOKEN
 from app.handlers import router
 from app.myapi import app  
@@ -24,46 +24,37 @@ async def start_bot(bot, dp):
 async def schedule_daily_reset():
     """Запуск процесса в 23:58 по московскому времени."""
     while True:
-        # Получаем текущее время в UTC
         utc_now = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
-        
-        # Конвертируем в московское время
         moscow_now = utc_now.astimezone(USER_TZ)
         
-        # Устанавливаем целевое время на сегодня 23:58 по Москве
+        # Целевое время 23:58
         target_time = moscow_now.replace(hour=23, minute=58, second=0, microsecond=0)
         
-        # Если 23:58 уже прошло, планируем на завтра
         if moscow_now >= target_time:
             target_time += timedelta(days=1)
         
-        # Конвертируем целевое время обратно в UTC для расчета sleep
-        target_time_utc = target_time.astimezone(ZoneInfo("UTC"))
-        
-        # Вычисляем разницу в секундах
-        wait_seconds = (target_time_utc - utc_now).total_seconds()
-        
-        logging.info(f"Текущее время по Москве: {moscow_now.strftime('%H:%M:%S')}")
-        logging.info(f"Следующее обновление запланировано на {target_time.strftime('%Y-%m-%d %H:%M:%S')} по Москве (через {wait_seconds:.0f} сек.)")
-        
+        wait_seconds = (target_time - moscow_now).total_seconds()
+        logging.info(f"Следующее обновление статистики через {wait_seconds/3600:.2f} часов")
         await asyncio.sleep(wait_seconds)
         
-        # Выполнение операций
-        logging.info("Запуск ежедневного обновления данных...")
-        
-        # 1. Сброс привычек с обновлением счетчика count_complete
         try:
+            logging.info("Начало ежедневного обновления данных...")
+            # ПОРЯДОК ВАЖЕН:
+            # 1. Сначала считаем статистику по текущим выполненным делам
+            update_daily_user_stats()
+            
+            # 2. Обновляем счетчики привычек и сбрасываем флаги выполнения
             reset_daily_habits()
-            logging.info("Статус привычек обновлен: count_complete увеличен для выполненных.")
+            
+            # 3. Удаляем выполненные задачи
+            delete_completed_tasks()
+            
+            logging.info("Ежедневное обновление успешно завершено")
         except Exception as e:
-            logging.error(f"Ошибка при обновлении привычек: {e}")
-
-        # 2. Удаление выполненных задач
-        try:
-            deleted_count = delete_completed_tasks()
-            logging.info(f"Удалено выполненных задач: {deleted_count}")
-        except Exception as e:
-            logging.error(f"Ошибка при удалении задач: {e}")
+            logging.error(f"Ошибка при обновлении данных: {e}")
+        
+        # Спим минуту, чтобы не сработало повторно в ту же секунду
+        await asyncio.sleep(60)
 
 async def get_moscow_time():
     """Вспомогательная функция для получения текущего московского времени"""

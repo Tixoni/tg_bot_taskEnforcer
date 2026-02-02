@@ -26,7 +26,12 @@ def init_db():
                     id SERIAL PRIMARY KEY,
                     tg_id BIGINT UNIQUE NOT NULL,
                     username TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    counttask INTEGER DEFAULT 0,
+                    count_habits INTEGER DEFAULT 0,
+                    count_complate_task INTEGER DEFAULT 0,
+                    ratio_complate_habits INTEGER DEFAULT 0,
+                    days_tracked INTEGER DEFAULT 0 
                 );
             """)
 
@@ -143,6 +148,70 @@ def toggle_habit_status(habit_id: int):
         with conn.cursor() as cur:
             cur.execute("UPDATE habits SET is_complete_today = NOT is_complete_today WHERE id = %s", (habit_id,))
 
+def delete_habit(habit_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM habits WHERE id = %s", (habit_id,))
+
+
+def update_habit_title(habit_id: int, new_title: str):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE habits SET title = %s WHERE id = %s", (new_title, habit_id))
+
+
+def update_daily_user_stats():
+    """
+    Обновляет все счетчики пользователей в 23:58.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Получаем всех пользователей
+            cur.execute("SELECT tg_id, days_tracked, ratio_complate_habits FROM users")
+            users = cur.fetchall()
+
+            for user in users:
+                u_id = user['tg_id']
+                days = user['days_tracked']
+                old_ratio = user['ratio_complate_habits']
+
+                # 1. Считаем текущие привычки (всего)
+                cur.execute("SELECT count(*) as total FROM habits WHERE user_id = %s", (u_id,))
+                total_habits = cur.fetchone()['total']
+
+                # 2. Считаем выполненные привычки за СЕГОДНЯ (для расчета ratio)
+                cur.execute("SELECT count(*) as done FROM habits WHERE user_id = %s AND is_complete_today = TRUE", (u_id,))
+                done_habits_today = cur.fetchone()['done']
+
+                # 3. Считаем ВСЕ задачи (и выполненные, и нет)
+                cur.execute("SELECT count(*) as total_t FROM tasks WHERE user_id = %s", (u_id,))
+                total_tasks = cur.fetchone()['total_t']
+
+                # 4. Считаем задачи, выполненные СЕГОДНЯ (которые сейчас удалим)
+                cur.execute("SELECT count(*) as done_t FROM tasks WHERE user_id = %s AND is_completed = TRUE", (u_id,))
+                done_tasks_today = cur.fetchone()['done_t']
+
+                # Расчет винрейта (ratio_complate_habits)
+                # Формула скользящего среднего: ((прошлый_% * дни) + сегодняшний_%) / (дни + 1)
+                today_ratio = (done_habits_today / total_habits * 100) if total_habits > 0 else 0
+                new_ratio = int(((old_ratio * days) + today_ratio) / (days + 1))
+
+                # ОБНОВЛЯЕМ ВСЕ ПОЛЯ
+                cur.execute("""
+                    UPDATE users 
+                    SET 
+                        days_tracked = days_tracked + 1,
+                        count_habits = %s,
+                        counttask = %s,
+                        count_complate_task = count_complate_task + %s,
+                        ratio_complate_habits = %s
+                    WHERE tg_id = %s
+                """, (total_habits, total_tasks, done_tasks_today, new_ratio, u_id))
+                
+        conn.commit()
+
+
+
 
 def reset_daily_habits():
     """
@@ -160,14 +229,3 @@ def reset_daily_habits():
             # Затем сбрасываем статус для всех на следующий день
             cur.execute("UPDATE habits SET is_complete_today = FALSE;")
 
-
-def delete_habit(habit_id: int):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM habits WHERE id = %s", (habit_id,))
-
-
-def update_habit_title(habit_id: int, new_title: str):
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE habits SET title = %s WHERE id = %s", (new_title, habit_id))
