@@ -253,14 +253,15 @@ def add_scheduled_notification(user_id, text, scheduled_time, file_id=None, medi
         conn.commit()
 
 def get_pending_notifications():
-    """Получает все сообщения, время которых пришло, но они еще не отправлены"""
+    """Получает сообщения, время которых наступило по Москве"""
     with get_connection() as conn:
         with conn.cursor() as cur:
-            # Сравниваем с текущим временем
+            # Сдвигаем текущее время базы на +3 часа (МСК) для сравнения
             cur.execute("""
                 SELECT id, user_id, message_text, file_id, media_type 
                 FROM scheduled_notifications 
-                WHERE is_sent = FALSE AND scheduled_time <= CURRENT_TIMESTAMP
+                WHERE is_sent = FALSE 
+                AND scheduled_time <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Moscow')
             """)
             return cur.fetchall()
 
