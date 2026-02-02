@@ -7,10 +7,11 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo  # Важно: используем zoneinfo вместо pytz
 
 
-from app.database import init_db, reset_daily_habits, delete_completed_tasks, update_daily_user_stats
+from app.database import init_db, reset_daily_habits, delete_completed_tasks, update_daily_user_stats, get_pending_notifications, mark_notification_sent
 from config import TOKEN
 from app.handlers import router
-from app.myapi import app  
+from app.myapi import app 
+from datetime import timezone
 
 # Определяем часовые пояса
 SERVER_TZ = ZoneInfo("America/Los_Angeles")  # Пояс сервера (Калифорния)
@@ -24,7 +25,7 @@ async def start_bot(bot, dp):
 async def schedule_daily_reset():
     """Запуск процесса в 23:58 по московскому времени."""
     while True:
-        utc_now = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+        utc_now = datetime.now(timezone.utc)
         moscow_now = utc_now.astimezone(USER_TZ)
         
         # Целевое время 23:58
