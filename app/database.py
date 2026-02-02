@@ -68,6 +68,19 @@ def init_db():
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);")
 
+            # EVENT
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS scheduled_notifications (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    message_text TEXT,
+                    file_id TEXT,           -- ID файла в Телеграм (фото, видео или голосовое)
+                    media_type TEXT,        -- 'photo', 'video', 'voice' или NULL
+                    scheduled_time TIMESTAMP NOT NULL,
+                    is_sent BOOLEAN DEFAULT FALSE
+                );
+            """)
+
 # ================= USERS =================
 
 def add_user(tg_id: int, username: str):
@@ -229,3 +242,30 @@ def reset_daily_habits():
             # Затем сбрасываем статус для всех на следующий день
             cur.execute("UPDATE habits SET is_complete_today = FALSE;")
 
+# ============================ EVENT =================
+def add_scheduled_notification(user_id, text, scheduled_time, file_id=None, media_type=None):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO scheduled_notifications (user_id, message_text, scheduled_time, file_id, media_type)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_id, text, scheduled_time, file_id, media_type))
+        conn.commit()
+
+def get_pending_notifications():
+    """Получает все сообщения, время которых пришло, но они еще не отправлены"""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Сравниваем с текущим временем
+            cur.execute("""
+                SELECT id, user_id, message_text, file_id, media_type 
+                FROM scheduled_notifications 
+                WHERE is_sent = FALSE AND scheduled_time <= CURRENT_TIMESTAMP
+            """)
+            return cur.fetchall()
+
+def mark_notification_sent(notif_id):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE scheduled_notifications SET is_sent = TRUE WHERE id = %s", (notif_id,))
+        conn.commit()

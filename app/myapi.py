@@ -135,5 +135,29 @@ async def api_toggle_habit(habit_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# Модель данных для запроса
+class NotificationSchema(BaseModel):
+    user_id: int
+    text: Optional[str] = None
+    scheduled_time: str  # Формат: "2024-12-31 15:30"
+    file_id: Optional[str] = None
+    media_type: Optional[str] = None # 'photo', 'video', 'voice'
+
+@app.post("/api/notifications/schedule")
+async def schedule_message(data: NotificationSchema):
+    try:
+        dt = datetime.strptime(data.scheduled_time, "%Y-%m-%d %H:%M")
+        db.add_scheduled_notification(
+            data.user_id, 
+            data.text, 
+            dt, 
+            data.file_id, 
+            data.media_type
+        )
+        return {"status": "ok", "message": "Рассылка запланирована"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 if WEB_DIR.exists():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")

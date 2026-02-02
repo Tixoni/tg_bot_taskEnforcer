@@ -66,6 +66,46 @@ async def get_server_time():
     utc_now = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
     return utc_now.astimezone(SERVER_TZ)
 
+
+
+
+async def notification_worker(bot: Bot):
+    """Каждые 60 секунд проверяет базу и отправляет сообщения через API Telegram"""
+    logging.info("Воркер уведомлений запущен")
+    while True:
+        try:
+            pending = get_pending_notifications()
+            for note in pending:
+                u_id = note['user_id']
+                text = note['message_text']
+                f_id = note['file_id']
+                m_type = note['media_type']
+                
+                try:
+                    # Взаимодействие с API Telegram через aiogram
+                    if m_type == 'photo':
+                        await bot.send_photo(u_id, photo=f_id, caption=text)
+                    elif m_type == 'video':
+                        await bot.send_video(u_id, video=f_id, caption=text)
+                    elif m_type == 'voice':
+                        await bot.send_voice(u_id, voice=f_id, caption=text)
+                    else:
+                        await bot.send_message(u_id, text=text)
+                    
+                    mark_notification_sent(note['id'])
+                    logging.info(f"Успешно отправлено уведомление пользователю {u_id}")
+                except Exception as send_error:
+                    logging.error(f"Ошибка отправки пользователю {u_id}: {send_error}")
+        except Exception as e:
+            logging.error(f"Ошибка воркера: {e}")
+            
+        await asyncio.sleep(60)
+
+
+
+
+
+
 async def main():
     # Инициализация структуры БД при запуске
     init_db()
@@ -86,6 +126,7 @@ async def main():
     # Запускаем бота и планировщик как фоновые задачи
     bot_task = asyncio.create_task(start_bot(bot, dp))
     asyncio.create_task(schedule_daily_reset())
+    asyncio.create_task(notification_worker(bot))    # ОТПРАВКА УВЕДОМЛЕНИЙ
 
     # Настройка и запуск API сервера
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
