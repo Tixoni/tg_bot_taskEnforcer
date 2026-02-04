@@ -1,6 +1,7 @@
 import os
 import psycopg
 from psycopg.rows import dict_row
+from datetime import datetime, date
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -93,6 +94,9 @@ def add_user(tg_id: int, username: str):
 # ================= TASKS =================
 
 def add_task(user_id, title, task_date=None):
+    if isinstance(task_date, str):
+        task_date = datetime.strptime(task_date, "%Y-%m-%d").date()
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -100,6 +104,7 @@ def add_task(user_id, title, task_date=None):
                 VALUES (%s, %s, %s)
             """, (user_id, title, task_date or datetime.now().date()))
         conn.commit()
+
 def get_user_tasks(user_id, date_str=None):
     with get_connection() as conn:
         with conn.cursor() as cur:

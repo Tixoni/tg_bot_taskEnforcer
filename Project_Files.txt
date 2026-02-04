@@ -1,0 +1,1424 @@
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\requirements.txt]
+[Размер: 111 байт]
+[Дата изменения: 2026-01-31 19:51:52.989718]
+
+aiogram==3.17.0
+fastapi==0.115.0
+uvicorn==0.34.0
+pydantic==2.10.0
+requests==2.32.3
+psycopg[binary]==3.1.18
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\runtime.txt]
+[Размер: 11 байт]
+[Дата изменения: 2026-01-31 17:33:15.106470]
+
+python-3.12
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\script.js]
+[Размер: 12067 байт]
+[Дата изменения: 2026-02-04 16:17:26.380300]
+
+const API_BASE_URL = (() => {
+    const m = document.querySelector('meta[name="api-base"]');
+    return (m && m.getAttribute("content")) || "";
+})();
+
+const tg = window.Telegram?.WebApp;
+let currentTab = 'today';
+let userId = tg?.initDataUnsafe?.user?.id || 0;
+let userName = tg?.initDataUnsafe?.user?.username || "User";
+
+let pressTimer;
+let selectedItem = null; // { id, type, title }
+let isSaving = false;
+let calendarDate = new Date(); // Месяц, который смотрим
+let selectedDate = new Date(); // Конкретный день
+
+(async function init() {
+    tg?.ready();
+    tg?.expand();
+    tg?.setHeaderColor('#000000');
+    try {
+        await fetch(`${API_BASE_URL}/api/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tg_id: userId, name: userName })
+        });
+        refreshData();
+    } catch (e) { showMessage("Ошибка подключения"); }
+})();
+
+function switchTab(tab) {
+    currentTab = tab;
+    document.getElementById('screen-today').classList.toggle('hidden', tab !== 'today');
+    document.getElementById('screen-habits').classList.toggle('hidden', tab !== 'habits');
+    document.getElementById('screen-calendar').classList.toggle('hidden', tab !== 'calendar');
+
+    document.getElementById('btn-today').classList.toggle('active', tab === 'today');
+    document.getElementById('btn-habits').classList.toggle('active', tab === 'habits');
+
+    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(`btn-${tab}`).classList.add('active');
+    
+    if (tab === 'calendar') renderCalendar();
+    if (tab === 'today') refreshData();
+    refreshData();
+}
+
+async function refreshData() {
+    try {
+        const [tRes, hRes] = await Promise.all([
+            fetch(`${API_BASE_URL}/api/tasks/${userId}`),
+            fetch(`${API_BASE_URL}/api/habits/${userId}`)
+        ]);
+        renderLists(await tRes.json(), await hRes.json());
+    } catch (e) { console.error(e); }
+}
+
+function renderLists(tasks, habits) {
+    const active = tasks.filter(t => !t.is_completed);
+    const done = tasks.filter(t => t.is_completed);
+
+    document.getElementById('list-active-tasks').innerHTML = active.map(t => createItemHTML(t, 'task')).join('');
+    document.getElementById('list-today-habits').innerHTML = habits.map(h => createItemHTML(h, 'habit')).join('');
+    document.getElementById('list-completed-tasks').innerHTML = done.map(t => createItemHTML(t, 'task')).join('');
+    
+    const hFull = document.getElementById('list-all-habits');
+    if (hFull) hFull.innerHTML = habits.map(h => createItemHTML(h, 'habit')).join('');
+}
+
+function createItemHTML(item, type) {
+    const isDone = type === 'task' ? item.is_completed : (item.is_completed_today || item.is_complete_today);
+    const checkCls = type === 'task' ? 'checkbox-task' : 'checkbox-habit';
+    const clickFn = type === 'task' ? `toggleTask(${item.id})` : `toggleHabit(${item.id})`;
+
+    return `
+        <div class="card" 
+             ontouchstart="handlePressStart(event, ${item.id}, '${type}', '${item.title.replace(/'/g, "\\'")}')" 
+             ontouchend="handlePressEnd()" 
+             onmousedown="handlePressStart(event, ${item.id}, '${type}', '${item.title.replace(/'/g, "\\'")}')" 
+             onmouseup="handlePressEnd()">
+            <input type="checkbox" class="${checkCls}" ${isDone ? 'checked' : ''} onclick="${clickFn}; event.stopPropagation();">
+            <span class="flex-1 ${isDone ? 'line-through opacity-40 text-gray-500' : 'font-semibold text-gray-100'}">${item.title}</span>
+        </div>`;
+}
+
+// LONG PRESS LOGIC
+function handlePressStart(e, id, type, title) {
+    if (e.target.tagName === 'INPUT') return;
+    pressTimer = window.setTimeout(() => {
+        selectedItem = { id, type, title };
+        openContextModal();
+    }, 600);
+}
+
+function handlePressEnd() { clearTimeout(pressTimer); }
+
+function openContextModal() {
+    document.getElementById('context-modal').style.display = 'flex';
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
+}
+
+function closeContextModal() { document.getElementById('context-modal').style.display = 'none'; }
+
+function openEditModal() {
+    closeContextModal();
+    const input = document.getElementById('edit-input');
+    input.value = selectedItem.title;
+    document.getElementById('edit-modal').style.display = 'flex';
+    setTimeout(() => input.focus(), 100);
+}
+
+function closeEditModal() { document.getElementById('edit-modal').style.display = 'none'; }
+
+async function handleUpdate() {
+    const val = document.getElementById('edit-input').value.trim();
+    if (!val || !selectedItem) return;
+    const path = selectedItem.type === 'task' ? `/api/tasks/update/${selectedItem.id}` : `/api/habits/update/${selectedItem.id}`;
+    await fetch(`${API_BASE_URL}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: val })
+    });
+    closeEditModal();
+    refreshData();
+}
+
+async function confirmDelete() {
+    if (!selectedItem) return;
+    const path = selectedItem.type === 'task' ? `/api/tasks/${selectedItem.id}` : `/api/habits/${selectedItem.id}`;
+    await fetch(`${API_BASE_URL}${path}`, { method: "DELETE" });
+    closeContextModal();
+    refreshData();
+}
+
+// ... остальной код (openModal, handleSave, toggleTask...) без изменений
+function openModal() {
+    const m = document.getElementById('input-modal');
+    document.getElementById('modal-title').innerText = currentTab === 'today' ? "Новая задача" : "Новая привычка";
+    m.style.display = 'flex';
+    setTimeout(() => document.getElementById('main-input').focus(), 100);
+}
+
+function closeModal() {
+    document.getElementById('input-modal').style.display = 'none';
+    document.getElementById('main-input').value = '';
+}
+
+async function handleSave() {
+    const val = document.getElementById('main-input').value.trim();
+    if (!val || isSaving) return;
+    isSaving = true;
+
+    // ИСПРАВЛЕНИЕ: Проверяем, что вкладка либо 'today', либо 'calendar'
+    const isTask = (currentTab === 'today' || currentTab === 'calendar');
+    const path = isTask ? '/api/tasks/add' : '/api/habits/add';
+    
+    // Определяем дату
+    const taskDate = (currentTab === 'calendar') 
+        ? selectedDate.toISOString().split('T')[0] 
+        : new Date().toISOString().split('T')[0];
+
+    try {
+        await fetch(`${API_BASE_URL}${path}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            // Передаем дату, чтобы она сохранялась в БД
+            body: JSON.stringify({ 
+                user_id: userId, 
+                title: val,
+                date: taskDate 
+            })
+        });
+        closeModal();
+        refreshData();
+    } catch (e) {
+        console.error("Ошибка сохранения:", e);
+    } finally { 
+        isSaving = false; 
+    }
+}
+
+async function toggleTask(id) {
+    await fetch(`${API_BASE_URL}/api/tasks/toggle/${id}`, { method: "POST" });
+    tg?.HapticFeedback?.impactOccurred("light");
+    refreshData();
+}
+
+async function toggleHabit(id) {
+    await fetch(`${API_BASE_URL}/api/habits/toggle/${id}`, { method: "POST" });
+    tg?.HapticFeedback?.notificationOccurred("success");
+    refreshData();
+}
+
+function showMessage(msg) {
+    const err = document.getElementById('init-error');
+    err.innerText = msg;
+    err.classList.remove('hidden');
+    setTimeout(() => err.classList.add('hidden'), 3000);
+}
+
+
+// --- ЛОГИКА КАЛЕНДАРЯ ---
+
+function renderCalendar() {
+    const grid = document.getElementById('calendar-grid-days');
+    const title = document.getElementById('calendar-month-title');
+    grid.innerHTML = '';
+    
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    
+    // Название месяца
+    title.innerText = new Intl.DateTimeFormat('ru-RU', { month: 'long' }).format(calendarDate);
+
+    const firstDay = new Date(year, month, 1).getDay() || 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    // Заглушки для пустых дней в начале
+    for (let i = 1; i < firstDay; i++) {
+        grid.innerHTML += `<div class="aspect-square"></div>`;
+    }
+
+    // Рендерим числа
+    for (let d = 1; d <= daysInMonth; d++) {
+        const isToday = new Date().toDateString() === new Date(year, month, d).toDateString();
+        const activeClass = isToday ? 'border border-orange-500 text-orange-500' : 'text-white bg-zinc-900';
+        
+        grid.innerHTML += `
+            <div onclick="selectDay(${d})" class="aspect-square flex items-center justify-center rounded-xl text-sm font-bold active:scale-90 transition ${activeClass}">
+                ${d}
+            </div>
+        `;
+    }
+}
+
+function selectDay(day) {
+    selectedDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), day);
+    document.getElementById('calendar-month-view').classList.add('hidden');
+    document.getElementById('calendar-week-view').classList.remove('hidden');
+    renderWeekView();
+}
+
+function backToMonth() {
+    document.getElementById('calendar-month-view').classList.remove('hidden');
+    document.getElementById('calendar-week-view').classList.add('hidden');
+}
+
+function renderWeekView() {
+    const strip = document.getElementById('week-strip');
+    strip.innerHTML = '';
+    
+    const start = new Date(selectedDate);
+    start.setDate(selectedDate.getDate() - (selectedDate.getDay() || 7) + 1);
+
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        const isActive = d.toDateString() === selectedDate.toDateString();
+        
+        strip.innerHTML += `
+            <div onclick="setSpecificDay('${d.toISOString()}')" class="flex flex-col items-center gap-1 p-3 rounded-2xl transition-all ${isActive ? 'bg-orange-500 text-white' : 'bg-zinc-900 text-zinc-500'}">
+                <span class="text-[9px] uppercase font-black">${['пн','вт','ср','чт','пт','сб','вс'][i]}</span>
+                <span class="text-sm font-bold">${d.getDate()}</span>
+            </div>
+        `;
+    }
+    fetchCalendarTasks();
+}
+
+async function setSpecificDay(dateStr) {
+    selectedDate = new Date(dateStr);
+    renderWeekView();
+}
+
+async function fetchCalendarTasks() {
+    const dateStr = selectedDate.toISOString().split('T')[0];
+    const res = await fetch(`${API_BASE_URL}/api/tasks/${userId}?date=${dateStr}`);
+    const tasks = await res.json();
+    const container = document.getElementById('list-calendar-tasks');
+    
+    container.innerHTML = tasks.length ? '' : '<div class="p-8 text-center text-zinc-600 text-xs uppercase tracking-widest font-bold">Задач нет</div>';
+    tasks.forEach(t => {
+        container.innerHTML += `
+            <div class="card border-b border-zinc-800/50 last:border-none">
+                <input type="checkbox" ${t.is_completed ? 'checked' : ''} onclick="toggleTask(${t.id})" class="checkbox-task">
+                <span class="${t.is_completed ? 'line-through text-zinc-600' : 'text-white'} text-sm">${t.title}</span>
+            </div>
+        `;
+    });
+}
+
+function changeCalendarPeriod(offset) {
+    calendarDate.setMonth(calendarDate.getMonth() + offset);
+    renderCalendar();
+}
+
+function setCalendarToToday() {
+    calendarDate = new Date();
+    selectedDate = new Date();
+    renderCalendar();
+    if (!document.getElementById('calendar-week-view').classList.contains('hidden')) {
+        renderWeekView();
+    }
+}
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\index.html]
+[Размер: 7540 байт]
+[Дата изменения: 2026-02-04 15:52:30.157264]
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="api-base" content="https://tgbottaskenforcer-production.up.railway.app">
+    <title>Task Enforcer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="pb-24">
+    <div id="init-error" class="hidden fixed top-4 left-4 right-4 z-50 p-4 rounded-xl bg-red-900 text-white border border-red-700 text-xs"></div>
+
+    <main id="screen-today" class="p-4 space-y-6">
+        <h1 class="text-3xl font-bold text-white mb-2">Сегодня</h1>
+        
+        <section>
+            <h2 class="section-title">Задачи</h2>
+            <div class="section-block">
+                <div id="list-active-tasks" class="list-section"></div>
+            </div>
+        </section>
+
+        <section>
+            <h2 class="section-title">Привычки</h2>
+            <div class="section-block">
+                <div id="list-today-habits" class="list-section"></div>
+            </div>
+        </section>
+
+        <section>
+            <h2 class="section-title">Выполнено</h2>
+            <div class="section-block opacity-50">
+                <div id="list-completed-tasks" class="list-section"></div>
+            </div>
+        </section>
+    </main>
+
+    <main id="screen-habits" class="hidden p-4 space-y-6">
+        <h1 class="text-3xl font-bold text-white mb-2">Привычки</h1>
+        <div class="section-block">
+            <div id="list-all-habits" class="list-section"></div>
+        </div>
+    </main>
+
+    <button onclick="switchTab('calendar')" id="btn-calendar" class="nav-btn">
+        <span class="text-[10px] uppercase tracking-widest font-bold">Календарь</span>
+    </button>
+    
+
+    <button onclick="openModal()" class="fab">+</button>
+
+
+    <main id="screen-calendar" class="p-4 space-y-4 hidden">
+        <div class="flex justify-between items-center mb-4">
+            <h1 id="calendar-month-title" class="text-2xl font-bold text-white uppercase tracking-tighter">Месяц</h1>
+            <div class="flex gap-2">
+                <button onclick="changeCalendarPeriod(-1)" class="w-10 h-10 flex items-center justify-center bg-zinc-800 rounded-xl active:scale-90 transition">←</button>
+                <button onclick="setCalendarToToday()" class="px-4 h-10 bg-zinc-800 rounded-xl text-[10px] font-bold uppercase tracking-widest active:scale-90 transition">Сегодня</button>
+                <button onclick="changeCalendarPeriod(1)" class="w-10 h-10 flex items-center justify-center bg-zinc-800 rounded-xl active:scale-90 transition">→</button>
+            </div>
+        </div>
+    
+        <div id="calendar-month-view">
+            <div class="grid grid-cols-7 gap-1 text-center mb-2">
+                <div class="text-[10px] text-zinc-500 font-bold">ПН</div>
+                <div class="text-[10px] text-zinc-500 font-bold">ВТ</div>
+                <div class="text-[10px] text-zinc-500 font-bold">СР</div>
+                <div class="text-[10px] text-zinc-500 font-bold">ЧТ</div>
+                <div class="text-[10px] text-zinc-500 font-bold">ПТ</div>
+                <div class="text-[10px] text-zinc-500 font-bold text-orange-500/50">СБ</div>
+                <div class="text-[10px] text-zinc-500 font-bold text-orange-500/50">ВС</div>
+            </div>
+            <div id="calendar-grid-days" class="grid grid-cols-7 gap-1"></div>
+        </div>
+    
+        <div id="calendar-week-view" class="hidden animate-in fade-in duration-300">
+            <button onclick="backToMonth()" class="flex items-center gap-2 text-orange-500 text-[10px] font-bold uppercase tracking-widest mb-6 active:opacity-50 transition">
+                <span>←</span> Весь месяц
+            </button>
+            <div id="week-strip" class="flex justify-between mb-8"></div>
+            
+            <section>
+                <h2 class="section-title">Задачи на день</h2>
+                <div class="section-block">
+                    <div id="list-calendar-tasks" class="list-section"></div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <div id="input-modal" class="modal-backdrop" onclick="if(event.target === this) closeModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center mb-6">
+                <span id="modal-title" class="font-bold text-xl text-white">Новая запись</span>
+                <button onclick="closeModal()" class="text-gray-400">Отмена</button>
+            </div>
+            <input type="text" id="main-input" placeholder="..." 
+                   class="w-full p-4 bg-[#252525] rounded-2xl border-none outline-none focus:ring-2 focus:ring-orange-500 text-white text-lg">
+            <button onclick="handleSave()" class="w-full mt-6 py-4 bg-orange-500 text-white font-bold rounded-2xl active:scale-95 transition text-lg">
+                Сохранить
+            </button>
+        </div>
+    </div>
+
+    <div id="context-modal" class="modal-backdrop" onclick="closeContextModal()">
+        <div class="modal-content !pb-10" onclick="event.stopPropagation()">
+            <div class="space-y-3">
+                <button onclick="openEditModal()" class="w-full py-4 bg-[#252525] text-white font-bold rounded-2xl flex items-center justify-center gap-2">
+                    ✏️ Изменить название
+                </button>
+                <button onclick="confirmDelete()" class="w-full py-4 bg-red-600/20 text-red-500 font-bold rounded-2xl flex items-center justify-center gap-2">
+                    🗑 Удалить
+                </button>
+                <button onclick="closeContextModal()" class="w-full py-4 text-gray-400 font-medium">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="edit-modal" class="modal-backdrop" onclick="closeEditModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <h2 class="font-bold text-xl text-white mb-4">Редактировать</h2>
+            <input type="text" id="edit-input" class="w-full p-4 bg-[#252525] rounded-2xl border-none outline-none text-white text-lg">
+            <button onclick="handleUpdate()" class="w-full mt-6 py-4 bg-orange-500 text-white font-bold rounded-2xl active:scale-95 transition">
+                Сохранить
+            </button>
+        </div>
+    </div>
+
+    <nav class="nav-bar">
+        <button onclick="switchTab('today')" id="btn-today" class="nav-btn active">
+            <span class="text-[10px] uppercase tracking-widest font-bold">Сегодня</span>
+        </button>
+        <button onclick="switchTab('habits')" id="btn-habits" class="nav-btn">
+            <span class="text-[10px] uppercase tracking-widest font-bold">Привычка</span>
+        </button>
+        <button onclick="switchTab('calendar')" id="btn-calendar" class="nav-btn">
+            <span class="text-[10px] uppercase tracking-widest font-bold">Календарь</span>
+        </button>
+    </nav>
+
+    <script src="script.js"></script>
+</body>
+</html>
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\web\style.css]
+[Размер: 3773 байт]
+[Дата изменения: 2026-02-04 15:44:31.037424]
+
+:root {
+    --orange-main: #f97316;
+    --bg-page: #000000;
+    --bg-section: #1a1a1a;
+    --bg-section-alt: #252525;
+    --text-primary: #ffffff;
+    --text-muted: #888888;
+}
+
+body {
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.section-title {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 10px;
+    padding-left: 4px;
+}
+
+.section-block {
+    background-color: var(--bg-section);
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+.card {
+    padding: 18px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: transform 0.1s ease, background-color 0.2s;
+    -webkit-touch-callout: none;
+}
+
+/* Эффект при нажатии */
+.card:active {
+    background-color: #222;
+    transform: scale(0.98);
+}
+
+.nav-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 70px;
+    display: flex;
+    background-color: #121212;
+    border-top: 1px solid #222;
+    z-index: 40;
+}
+
+.nav-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+}
+
+.nav-btn.active { color: var(--orange-main); }
+
+.fab {
+    position: fixed;
+    bottom: 90px; right: 20px;
+    width: 64px; height: 64px;
+    border-radius: 32px;
+    background-color: var(--orange-main);
+    color: white;
+    font-size: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    z-index: 45;
+}
+
+.modal-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 100;
+    align-items: flex-end;
+}
+
+.modal-content {
+    background: #1c1c1c;
+    width: 100%;
+    padding: 30px 24px 50px 24px;
+    border-radius: 30px 30px 0 0;
+    animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
+
+.checkbox-habit, .checkbox-task {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 26px; height: 26px;
+    border: 2px solid #333;
+    background: #111;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.checkbox-habit { border-radius: 50%; }
+.checkbox-task { border-radius: 8px; }
+
+.checkbox-habit:checked { background: var(--orange-main); border-color: var(--orange-main); }
+.checkbox-task:checked { background: #2563eb; border-color: #2563eb; }
+
+.checkbox-habit:checked::after, .checkbox-task:checked::after {
+    content: '';
+    position: absolute;
+    left: 8px; top: 4px;
+    width: 6px; height: 11px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.calendar-day {
+    aspect-ratio: 1/1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+}
+.calendar-day.today { color: var(--orange-main); font-weight: 800; border: 1px solid var(--orange-main); }
+.calendar-day.selected { background-color: var(--orange-main); color: white; }
+.calendar-day.other-month { opacity: 0.2; }
+
+.week-day-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    border-radius: 15px;
+    background: #1a1a1a;
+    width: 45px;
+}
+.week-day-card.active {
+    background: var(--orange-main);
+}
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\config.py]
+[Размер: 47 байт]
+[Дата изменения: 2026-01-31 17:18:53.209299]
+
+import os
+
+TOKEN = os.getenv("BOT_TOKEN", "")
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\Copy_Files_POSSIBLE_DANGER_RUN_ONLY_HERE.py]
+[Размер: 5446 байт]
+[Дата изменения: 2026-01-31 17:28:36.274893]
+
+import os
+import sys
+import glob
+from pathlib import Path
+from datetime import datetime
+
+def main():
+    # Установка корневой директории
+    if len(sys.argv) > 1:
+        root_dir = sys.argv[1]
+    else:
+        root_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Проверка существования директории
+    if not os.path.exists(root_dir):
+        print(f'Ошибка: Директория "{root_dir}" не существует!')
+        input('Нажмите Enter для выхода...')
+        return 1
+    
+    # Получение абсолютного пути
+    root_dir = os.path.abspath(root_dir)
+    
+    print(f'Рабочая директория: {root_dir}')
+    print()
+    
+    # Удалить существующий файл результатов
+    if os.path.exists('Project_Files.txt'):
+        os.remove('Project_Files.txt')
+    
+    # Список разрешенных расширений для исходного кода
+    allowed_extensions = [
+        '*.txt', '*.bat', '*.cmd', '*.ps1', '*.js', '*.html', '*.css', 
+        '*.py', '*.java', '*.c', '*.cpp', '*.h', '*.cs', '*.php', 
+        '*.xml', '*.json', '*.config', '*.ini', '*.md', '*.sql', 
+        '*.yml', '*.yaml'
+    ]
+    
+    # Исключаемые директории
+    exclude_dirs = ['.git', 'node_modules', 'bin', 'obj', 'packages', '.vs', '.idea']
+    
+    # Максимальный размер файла (1 МБ)
+    max_size = 1048576
+    
+    print('Начало обработки файлов...')
+    print()
+    
+    processed_files = 0
+    skipped_files = 0
+    
+    # Рекурсивный поиск файлов
+    for extension in allowed_extensions:
+        pattern = os.path.join(root_dir, '**', extension)
+        
+        for file_path in glob.glob(pattern, recursive=True):
+            # Проверка на исключаемые директории
+            skip_file = False
+            for exclude_dir in exclude_dirs:
+                if exclude_dir in file_path.split(os.sep):
+                    skip_file = True
+                    break
+            
+            if skip_file:
+                continue
+            
+            # Получение информации о файле
+            try:
+                file_size = os.path.getsize(file_path)
+                mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                
+                # Проверка размера файла
+                if file_size < max_size:
+                    print(f'Обработка: {file_path}')
+                    
+                    with open('Project_Files.txt', 'a', encoding='utf-8') as result_file:
+                        result_file.write(f'[Файл: {file_path}]\n')
+                        result_file.write(f'[Размер: {file_size} байт]\n')
+                        result_file.write(f'[Дата изменения: {mod_time}]\n')
+                        result_file.write('\n')
+                        
+                        # Попытка чтения файла
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as src_file:
+                                content = src_file.read()
+                                result_file.write(content)
+                        except UnicodeDecodeError:
+                            # Попробуем другие кодировки
+                            try:
+                                with open(file_path, 'r', encoding='cp1251') as src_file:
+                                    content = src_file.read()
+                                    result_file.write(content)
+                            except:
+                                result_file.write('[Ошибка чтения файла - возможно бинарный файл]\n')
+                        except Exception as e:
+                            result_file.write(f'[Ошибка чтения файла: {str(e)}]\n')
+                        
+                        result_file.write('\n')
+                        result_file.write('-----\n')
+                        result_file.write('\n')
+                    
+                    processed_files += 1
+                else:
+                    print(f'Пропуск большого файла: {file_path} ({file_size} байт)')
+                    
+                    with open('Project_Files.txt', 'a', encoding='utf-8') as result_file:
+                        result_file.write(f'[Файл: {file_path} - ПРОПУЩЕН (слишком большой: {file_size} байт)]\n')
+                    
+                    skipped_files += 1
+                    
+            except Exception as e:
+                print(f'Ошибка при обработке файла {file_path}: {e}')
+    
+    print()
+    print(f'Готово! Результат сохранен в Project_Files.txt')
+    print(f'Обработано файлов: {processed_files}, пропущено: {skipped_files}')
+    print(f'Обработана директория: {root_dir}')
+    
+    # Пауза в конце
+    input('Нажмите Enter для выхода...')
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main())
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\run.py]
+[Размер: 6523 байт]
+[Дата изменения: 2026-02-02 13:51:00.815788]
+
+import asyncio
+import logging
+import os 
+import uvicorn
+from aiogram import Bot, Dispatcher
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo  # Важно: используем zoneinfo вместо pytz
+
+
+from app.database import init_db, reset_daily_habits, delete_completed_tasks, update_daily_user_stats, get_pending_notifications, mark_notification_sent
+from config import TOKEN
+from app.handlers import router
+from app.myapi import app 
+from datetime import timezone
+
+# Определяем часовые пояса
+SERVER_TZ = ZoneInfo("America/Los_Angeles")  # Пояс сервера (Калифорния)
+USER_TZ = ZoneInfo("Europe/Moscow")          # Пояс пользователей (Москва)
+
+async def start_bot(bot, dp):
+    dp.include_router(router)
+    await bot.delete_webhook(drop_pending_updates=True) 
+    await dp.start_polling(bot)
+
+async def schedule_daily_reset():
+    """Запуск процесса в 23:58 по московскому времени."""
+    while True:
+        utc_now = datetime.now(timezone.utc)
+        moscow_now = utc_now.astimezone(USER_TZ)
+        
+        # Целевое время 23:58
+        target_time = moscow_now.replace(hour=23, minute=58, second=0, microsecond=0)
+        
+        if moscow_now >= target_time:
+            target_time += timedelta(days=1)
+        
+        wait_seconds = (target_time - moscow_now).total_seconds()
+        logging.info(f"Следующее обновление статистики через {wait_seconds/3600:.2f} часов")
+        await asyncio.sleep(wait_seconds)
+        
+        try:
+            logging.info("Начало ежедневного обновления данных...")
+            # ПОРЯДОК ВАЖЕН:
+            # 1. Сначала считаем статистику по текущим выполненным делам
+            update_daily_user_stats()
+            
+            # 2. Обновляем счетчики привычек и сбрасываем флаги выполнения
+            reset_daily_habits()
+            
+            # 3. Удаляем выполненные задачи
+            delete_completed_tasks()
+            
+            logging.info("Ежедневное обновление успешно завершено")
+        except Exception as e:
+            logging.error(f"Ошибка при обновлении данных: {e}")
+        
+        # Спим минуту, чтобы не сработало повторно в ту же секунду
+        await asyncio.sleep(60)
+
+async def get_moscow_time():
+    """Вспомогательная функция для получения текущего московского времени"""
+    utc_now = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+    return utc_now.astimezone(USER_TZ)
+
+async def get_server_time():
+    """Вспомогательная функция для получения текущего времени сервера"""
+    utc_now = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+    return utc_now.astimezone(SERVER_TZ)
+
+
+
+
+async def notification_worker(bot: Bot):
+    """Каждые 60 секунд проверяет базу и отправляет сообщения через API Telegram"""
+    logging.info("Воркер уведомлений запущен")
+    while True:
+        try:
+            pending = get_pending_notifications()
+            for note in pending:
+                u_id = note['user_id']
+                text = note['message_text']
+                f_id = note['file_id']
+                m_type = note['media_type']
+                
+                try:
+                    # Взаимодействие с API Telegram через aiogram
+                    if m_type == 'photo':
+                        await bot.send_photo(u_id, photo=f_id, caption=text)
+                    elif m_type == 'video':
+                        await bot.send_video(u_id, video=f_id, caption=text)
+                    elif m_type == 'voice':
+                        await bot.send_voice(u_id, voice=f_id, caption=text)
+                    else:
+                        await bot.send_message(u_id, text=text)
+                    
+                    mark_notification_sent(note['id'])
+                    logging.info(f"Успешно отправлено уведомление пользователю {u_id}")
+                except Exception as send_error:
+                    logging.error(f"Ошибка отправки пользователю {u_id}: {send_error}")
+        except Exception as e:
+            logging.error(f"Ошибка воркера: {e}")
+            
+        await asyncio.sleep(60)
+
+
+
+
+
+
+async def main():
+    # Инициализация структуры БД при запуске
+    init_db()
+    
+    bot = Bot(token=TOKEN)
+    dp = Dispatcher()
+    
+    # Получаем порт от Railway
+    port = int(os.environ.get("PORT", 8000))
+    
+    # Логируем информацию о времени
+    server_time = await get_server_time()
+    moscow_time = await get_moscow_time()
+    logging.info(f"Время на сервере (Калифорния): {server_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    logging.info(f"Время для пользователей (Москва): {moscow_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    logging.info(f"Разница во времени: {(moscow_time - server_time).total_seconds()/3600:.1f} часов")
+    
+    # Запускаем бота и планировщик как фоновые задачи
+    bot_task = asyncio.create_task(start_bot(bot, dp))
+    asyncio.create_task(schedule_daily_reset())
+    asyncio.create_task(notification_worker(bot))    # ОТПРАВКА УВЕДОМЛЕНИЙ
+
+    # Настройка и запуск API сервера
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config)
+    
+    logging.info(f"Сервер запущен на порту {port}")
+    await server.serve()
+    await bot_task
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Выход")
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\database.py]
+[Размер: 11470 байт]
+[Дата изменения: 2026-02-04 15:39:21.069744]
+
+import os
+import psycopg
+from psycopg.rows import dict_row
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set")
+
+if "sslmode" not in DATABASE_URL and "railway" in DATABASE_URL.lower():
+    DATABASE_URL += "&sslmode=require" if "?" in DATABASE_URL else "?sslmode=require"
+
+def get_connection():
+    return psycopg.connect(
+        DATABASE_URL,
+        row_factory=dict_row,
+        connect_timeout=10,
+    )
+
+def init_db():
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # USERS
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    tg_id BIGINT UNIQUE NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    counttask INTEGER DEFAULT 0,
+                    count_habits INTEGER DEFAULT 0,
+                    count_complate_task INTEGER DEFAULT 0,
+                    ratio_complate_habits INTEGER DEFAULT 0,
+                    days_tracked INTEGER DEFAULT 0 
+                );
+            """)
+
+            # TASKS
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    title TEXT NOT NULL,
+                    is_completed BOOLEAN DEFAULT FALSE,
+                    task_date DATE DEFAULT CURRENT_DATE
+                );
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_tasks_user_id
+                ON tasks(user_id);
+            """)
+
+            # HABITS
+            # Таблица ПРИВЫЧЕК (HABITS)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS habits (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    title TEXT NOT NULL,
+                    is_complete_today BOOLEAN DEFAULT FALSE,
+                    count_complete INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (tg_id) ON DELETE CASCADE
+                );
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);")
+
+            # EVENT
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS scheduled_notifications (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    message_text TEXT,
+                    file_id TEXT,           -- ID файла в Телеграм (фото, видео или голосовое)
+                    media_type TEXT,        -- 'photo', 'video', 'voice' или NULL
+                    scheduled_time TIMESTAMP NOT NULL,
+                    is_sent BOOLEAN DEFAULT FALSE
+                );
+            """)
+
+# ================= USERS =================
+
+def add_user(tg_id: int, username: str):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO users (tg_id, username)
+                VALUES (%s, %s)
+                ON CONFLICT (tg_id) DO NOTHING;
+            """, (tg_id, username))
+
+# ================= TASKS =================
+
+def add_task(user_id, title, task_date=None):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO tasks (user_id, title, task_date) 
+                VALUES (%s, %s, %s)
+            """, (user_id, title, task_date or datetime.now().date()))
+        conn.commit()
+def get_user_tasks(user_id, date_str=None):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            if date_str:
+                cur.execute("SELECT * FROM tasks WHERE user_id = %s AND task_date = %s ORDER BY id DESC", (user_id, date_str))
+            else:
+                cur.execute("SELECT * FROM tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
+            return cur.fetchall()
+
+def toggle_task_status(task_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE tasks
+                SET is_completed = NOT is_completed
+                WHERE id = %s;
+            """, (task_id,))
+
+
+def delete_completed_tasks():
+    """Удаляет все выполненные задачи (вызывается ежедневно в 00:00)."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM tasks WHERE is_completed = TRUE")
+            deleted = cur.rowcount
+    return deleted
+
+def delete_task(task_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+
+# Редактирование
+def update_task_title(task_id: int, new_title: str):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE tasks SET title = %s WHERE id = %s", (new_title, task_id))
+
+
+# ============================ HABITS =================
+# Функции для работы с привычками
+def add_habit(user_id: int, title: str):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO habits (user_id, title) VALUES (%s, %s)", (user_id, title))
+
+def get_user_habits(user_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, title, is_complete_today FROM habits WHERE user_id = %s", (user_id,))
+            return cur.fetchall()
+
+def toggle_habit_status(habit_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE habits SET is_complete_today = NOT is_complete_today WHERE id = %s", (habit_id,))
+
+def delete_habit(habit_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM habits WHERE id = %s", (habit_id,))
+
+
+def update_habit_title(habit_id: int, new_title: str):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE habits SET title = %s WHERE id = %s", (new_title, habit_id))
+
+
+def update_daily_user_stats():
+    """
+    Обновляет все счетчики пользователей в 23:58.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Получаем всех пользователей
+            cur.execute("SELECT tg_id, days_tracked, ratio_complate_habits FROM users")
+            users = cur.fetchall()
+
+            for user in users:
+                u_id = user['tg_id']
+                days = user['days_tracked']
+                old_ratio = user['ratio_complate_habits']
+
+                # 1. Считаем текущие привычки (всего)
+                cur.execute("SELECT count(*) as total FROM habits WHERE user_id = %s", (u_id,))
+                total_habits = cur.fetchone()['total']
+
+                # 2. Считаем выполненные привычки за СЕГОДНЯ (для расчета ratio)
+                cur.execute("SELECT count(*) as done FROM habits WHERE user_id = %s AND is_complete_today = TRUE", (u_id,))
+                done_habits_today = cur.fetchone()['done']
+
+                # 3. Считаем ВСЕ задачи (и выполненные, и нет)
+                cur.execute("SELECT count(*) as total_t FROM tasks WHERE user_id = %s", (u_id,))
+                total_tasks = cur.fetchone()['total_t']
+
+                # 4. Считаем задачи, выполненные СЕГОДНЯ (которые сейчас удалим)
+                cur.execute("SELECT count(*) as done_t FROM tasks WHERE user_id = %s AND is_completed = TRUE", (u_id,))
+                done_tasks_today = cur.fetchone()['done_t']
+
+                # Расчет винрейта (ratio_complate_habits)
+                # Формула скользящего среднего: ((прошлый_% * дни) + сегодняшний_%) / (дни + 1)
+                today_ratio = (done_habits_today / total_habits * 100) if total_habits > 0 else 0
+                new_ratio = int(((old_ratio * days) + today_ratio) / (days + 1))
+
+                # ОБНОВЛЯЕМ ВСЕ ПОЛЯ
+                cur.execute("""
+                    UPDATE users 
+                    SET 
+                        days_tracked = days_tracked + 1,
+                        count_habits = %s,
+                        counttask = %s,
+                        count_complate_task = count_complate_task + %s,
+                        ratio_complate_habits = %s
+                    WHERE tg_id = %s
+                """, (total_habits, total_tasks, done_tasks_today, new_ratio, u_id))
+                
+        conn.commit()
+
+
+
+
+def reset_daily_habits():
+    """
+    Увеличивает count_complete на 1 для всех выполненных сегодня привычек
+    и сбрасывает маркер is_complete_today в False для всех привычек.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Сначала увеличиваем счетчик у тех, кто выполнил
+            cur.execute("""
+                UPDATE habits 
+                SET count_complete = count_complete + 1 
+                WHERE is_complete_today = TRUE;
+            """)
+            # Затем сбрасываем статус для всех на следующий день
+            cur.execute("UPDATE habits SET is_complete_today = FALSE;")
+
+# ============================ EVENT =================
+def add_scheduled_notification(user_id, text, scheduled_time, file_id=None, media_type=None):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO scheduled_notifications (user_id, message_text, scheduled_time, file_id, media_type)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_id, text, scheduled_time, file_id, media_type))
+        conn.commit()
+
+def get_pending_notifications():
+    """Получает сообщения, время которых наступило по Москве"""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Сдвигаем текущее время базы на +3 часа (МСК) для сравнения
+            cur.execute("""
+                SELECT id, user_id, message_text, file_id, media_type 
+                FROM scheduled_notifications 
+                WHERE is_sent = FALSE 
+                AND scheduled_time <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Moscow')
+            """)
+            return cur.fetchall()
+
+def mark_notification_sent(notif_id):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE scheduled_notifications SET is_sent = TRUE WHERE id = %s", (notif_id,))
+        conn.commit()
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\handlers.py]
+[Размер: 1255 байт]
+[Дата изменения: 2026-02-02 13:26:49.453347]
+
+from aiogram import F, Router
+from aiogram.filters import CommandStart, Command
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
+
+
+router = Router()
+
+@router.message(Command("start"))
+async def cmd_start(message: Message):
+    kb = [
+        [KeyboardButton(text="/list")],
+        [KeyboardButton(text="/add")]
+    ]
+    keyboard = ReplyKeyboardMarkup(keyboard=kb,resize_keyboard=True)
+    await message.answer("Я заставлю тебя работать маленькая сучка!", reply_markup=keyboard)
+
+
+# Добавить в конец handlers.py
+@router.message(F.photo | F.video | F.voice)
+async def get_file_id_handler(message: Message):
+    if message.photo:
+        file_id = message.photo[-1].file_id
+        await message.answer(f"ID фото: `{file_id}`", parse_mode="Markdown")
+    elif message.video:
+        await message.answer(f"ID видео: `{message.video.file_id}`", parse_mode="Markdown")
+    elif message.voice:
+        await message.answer(f"ID голосового: `{message.voice.file_id}`", parse_mode="Markdown")
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\inline.py]
+[Размер: 0 байт]
+[Дата изменения: 2026-01-28 10:03:18.086374]
+
+
+-----
+
+[Файл: c:\Users\Tixon11\obsidian\NewObsidian\Интеллект\Технический\Programming\aiogram\tg_bot_TaskEnforcer\app\myapi.py]
+[Размер: 4736 байт]
+[Дата изменения: 2026-02-04 15:40:56.136106]
+
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from typing import List
+import app.database as db
+from typing import List, Optional
+
+app = FastAPI()
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class UserRegistration(BaseModel):
+    tg_id: int
+    name: str
+
+class TaskCreate(BaseModel):
+    user_id: int
+    title: str
+    date: Optional[str] = None
+
+class TaskResponse(BaseModel):
+    id: int
+    title: str
+    is_completed: bool
+
+
+
+
+@app.post("/api/register")
+async def register_user(user: UserRegistration):
+    try:
+        db.add_user(user.tg_id, user.name)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/tasks/add")
+async def api_add_task(task: TaskCreate):
+    try:
+        db.add_task(task.user_id, task.title, task.date)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/tasks/{user_id}")
+async def api_get_tasks(user_id: int, date: Optional[str] = None):
+    try:
+        return db.get_user_tasks(user_id, date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/tasks/toggle/{task_id}")
+async def api_toggle_task(task_id: int):
+    try:
+        db.toggle_task_status(task_id)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+class HabitCreate(BaseModel):
+    user_id: int
+    title: str
+
+@app.post("/api/habits/add")
+async def api_add_habit(habit: HabitCreate):
+    db.add_habit(habit.user_id, habit.title)
+    return {"status": "ok"}
+
+@app.get("/api/habits/{user_id}")
+async def api_get_habits(user_id: int):
+    return db.get_user_habits(user_id)
+
+@app.post("/api/habits/toggle/{habit_id}")
+async def api_toggle_habit(habit_id: int):
+    db.toggle_habit_status(habit_id)
+    return {"status": "ok"}
+
+
+
+# Эндпоинты удаления
+@app.delete("/api/tasks/{task_id}")
+async def api_delete_task(task_id: int):
+    db.delete_task(task_id)
+    return {"status": "ok"}
+
+@app.delete("/api/habits/{habit_id}")
+async def api_delete_habit(habit_id: int):
+    db.delete_habit(habit_id)
+    return {"status": "ok"}
+
+# Эндпоинты редактирования
+class UpdateItem(BaseModel):
+    title: str
+
+@app.post("/api/tasks/update/{task_id}")
+async def api_update_task(task_id: int, data: UpdateItem):
+    db.update_task_title(task_id, data.title)
+    return {"status": "ok"}
+
+@app.post("/api/habits/update/{habit_id}")
+async def api_update_habit(habit_id: int, data: UpdateItem):
+    db.update_habit_title(habit_id, data.title)
+    return {"status": "ok"}
+
+
+class HabitResponse(BaseModel):
+    id: int
+    title: str
+    is_complete_today: bool
+    count_complete: int
+
+@app.get("/api/habits/{user_id}", response_model=List[HabitResponse])
+async def api_get_habits(user_id: int):
+    try:
+        return db.get_user_habits(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/habits/toggle/{habit_id}")
+async def api_toggle_habit(habit_id: int):
+    try:
+        db.toggle_habit_status(habit_id)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Модель данных для запроса
+class NotificationSchema(BaseModel):
+    user_id: int
+    text: Optional[str] = None
+    scheduled_time: str  # Формат: "2024-12-31 15:30"
+    file_id: Optional[str] = None
+    media_type: Optional[str] = None # 'photo', 'video', 'voice'
+
+@app.post("/api/notifications/schedule")
+async def schedule_message(data: NotificationSchema):
+    try:
+        dt = datetime.strptime(data.scheduled_time, "%Y-%m-%d %H:%M")
+        db.add_scheduled_notification(
+            data.user_id, 
+            data.text, 
+            dt, 
+            data.file_id, 
+            data.media_type
+        )
+        return {"status": "ok", "message": "Рассылка запланирована"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+if WEB_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+-----
+

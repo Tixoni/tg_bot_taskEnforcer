@@ -148,25 +148,39 @@ function closeModal() {
 async function handleSave() {
     const val = document.getElementById('main-input').value.trim();
     if (!val || isSaving) return;
+    isSaving = true;
+
+    // ИСПРАВЛЕНИЕ: Проверяем, что вкладка либо 'today', либо 'calendar'
+    const isTask = (currentTab === 'today' || currentTab === 'calendar');
     
-    const taskDate = (currentTab === 'calendar') ? selectedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
     
+    // Определяем дату
+    const taskDate = (currentTab === 'calendar') 
+        ? selectedDate.toISOString().split('T')[0] 
+        : new Date().toISOString().split('T')[0];
+
+
     const body = { 
         user_id: userId, 
         title: val,
-        date: taskDate
+        date: taskDate // Эта дата должна уйти на сервер
     };
 
+    const path = isTask ? '/api/tasks/add' : '/api/habits/add';
 
     try {
         await fetch(`${API_BASE_URL}${path}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_id: userId, title: val })
+            body: JSON.stringify(body)
         });
         closeModal();
         refreshData();
-    } finally { isSaving = false; }
+    } catch (e) {
+        console.error("Ошибка сохранения:", e);
+    } finally { 
+        isSaving = false; 
+    }
 }
 
 async function toggleTask(id) {
