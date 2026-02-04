@@ -24,6 +24,7 @@ class UserRegistration(BaseModel):
 class TaskCreate(BaseModel):
     user_id: int
     title: str
+    date: Optional[str] = None
 
 class TaskResponse(BaseModel):
     id: int
@@ -44,15 +45,15 @@ async def register_user(user: UserRegistration):
 @app.post("/api/tasks/add")
 async def api_add_task(task: TaskCreate):
     try:
-        db.add_task(task.user_id, task.title)
+        db.add_task(task.user_id, task.title, task.date)
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/tasks/{user_id}", response_model=List[TaskResponse])
-async def api_get_tasks(user_id: int):
+@app.get("/api/tasks/{user_id}")
+async def api_get_tasks(user_id: int, date: Optional[str] = None):
     try:
-        return db.get_user_tasks(user_id)
+        return db.get_user_tasks(user_id, date)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

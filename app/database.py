@@ -42,9 +42,7 @@ def init_db():
                     user_id BIGINT NOT NULL,
                     title TEXT NOT NULL,
                     is_completed BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (tg_id)
-                        ON DELETE CASCADE
+                    task_date DATE DEFAULT CURRENT_DATE
                 );
             """)
 
@@ -94,23 +92,21 @@ def add_user(tg_id: int, username: str):
 
 # ================= TASKS =================
 
-def add_task(user_id: int, title: str):
+def add_task(user_id, title, task_date=None):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO tasks (user_id, title)
-                VALUES (%s, %s);
-            """, (user_id, title))
-
-def get_user_tasks(user_id: int):
+                INSERT INTO tasks (user_id, title, task_date) 
+                VALUES (%s, %s, %s)
+            """, (user_id, title, task_date or datetime.now().date()))
+        conn.commit()
+def get_user_tasks(user_id, date_str=None):
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, title, is_completed
-                FROM tasks
-                WHERE user_id = %s
-                ORDER BY id DESC;
-            """, (user_id,))
+            if date_str:
+                cur.execute("SELECT * FROM tasks WHERE user_id = %s AND task_date = %s ORDER BY id DESC", (user_id, date_str))
+            else:
+                cur.execute("SELECT * FROM tasks WHERE user_id = %s ORDER BY id DESC", (user_id,))
             return cur.fetchall()
 
 def toggle_task_status(task_id: int):

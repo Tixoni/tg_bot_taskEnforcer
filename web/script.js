@@ -11,6 +11,8 @@ let userName = tg?.initDataUnsafe?.user?.username || "User";
 let pressTimer;
 let selectedItem = null; // { id, type, title }
 let isSaving = false;
+let calendarDate = new Date(); // Месяц, который смотрим
+let selectedDate = new Date(); // Конкретный день
 
 (async function init() {
     tg?.ready();
@@ -30,8 +32,16 @@ function switchTab(tab) {
     currentTab = tab;
     document.getElementById('screen-today').classList.toggle('hidden', tab !== 'today');
     document.getElementById('screen-habits').classList.toggle('hidden', tab !== 'habits');
+    document.getElementById('screen-calendar').classList.toggle('hidden', tab !== 'calendar');
+
     document.getElementById('btn-today').classList.toggle('active', tab === 'today');
     document.getElementById('btn-habits').classList.toggle('active', tab === 'habits');
+
+    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(`btn-${tab}`).classList.add('active');
+    
+    if (tab === 'calendar') renderCalendar();
+    if (tab === 'today') refreshData();
     refreshData();
 }
 
@@ -138,8 +148,16 @@ function closeModal() {
 async function handleSave() {
     const val = document.getElementById('main-input').value.trim();
     if (!val || isSaving) return;
-    isSaving = true;
-    const path = currentTab === 'today' ? '/api/tasks/add' : '/api/habits/add';
+    
+    const taskDate = (currentTab === 'calendar') ? selectedDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+    
+    const body = { 
+        user_id: userId, 
+        title: val,
+        date: taskDate
+    };
+
+
     try {
         await fetch(`${API_BASE_URL}${path}`, {
             method: "POST",
@@ -168,4 +186,109 @@ function showMessage(msg) {
     err.innerText = msg;
     err.classList.remove('hidden');
     setTimeout(() => err.classList.add('hidden'), 3000);
+}
+
+
+// --- ЛОГИКА КАЛЕНДАРЯ ---
+
+function renderCalendar() {
+    const grid = document.getElementById('calendar-grid-days');
+    const title = document.getElementById('calendar-month-title');
+    grid.innerHTML = '';
+    
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    
+    // Название месяца
+    title.innerText = new Intl.DateTimeFormat('ru-RU', { month: 'long' }).format(calendarDate);
+
+    const firstDay = new Date(year, month, 1).getDay() || 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    // Заглушки для пустых дней в начале
+    for (let i = 1; i < firstDay; i++) {
+        grid.innerHTML += `<div class="aspect-square"></div>`;
+    }
+
+    // Рендерим числа
+    for (let d = 1; d <= daysInMonth; d++) {
+        const isToday = new Date().toDateString() === new Date(year, month, d).toDateString();
+        const activeClass = isToday ? 'border border-orange-500 text-orange-500' : 'text-white bg-zinc-900';
+        
+        grid.innerHTML += `
+            <div onclick="selectDay(${d})" class="aspect-square flex items-center justify-center rounded-xl text-sm font-bold active:scale-90 transition ${activeClass}">
+                ${d}
+            </div>
+        `;
+    }
+}
+
+function selectDay(day) {
+    selectedDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), day);
+    document.getElementById('calendar-month-view').classList.add('hidden');
+    document.getElementById('calendar-week-view').classList.remove('hidden');
+    renderWeekView();
+}
+
+function backToMonth() {
+    document.getElementById('calendar-month-view').classList.remove('hidden');
+    document.getElementById('calendar-week-view').classList.add('hidden');
+}
+
+function renderWeekView() {
+    const strip = document.getElementById('week-strip');
+    strip.innerHTML = '';
+    
+    const start = new Date(selectedDate);
+    start.setDate(selectedDate.getDate() - (selectedDate.getDay() || 7) + 1);
+
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        const isActive = d.toDateString() === selectedDate.toDateString();
+        
+        strip.innerHTML += `
+            <div onclick="setSpecificDay('${d.toISOString()}')" class="flex flex-col items-center gap-1 p-3 rounded-2xl transition-all ${isActive ? 'bg-orange-500 text-white' : 'bg-zinc-900 text-zinc-500'}">
+                <span class="text-[9px] uppercase font-black">${['пн','вт','ср','чт','пт','сб','вс'][i]}</span>
+                <span class="text-sm font-bold">${d.getDate()}</span>
+            </div>
+        `;
+    }
+    fetchCalendarTasks();
+}
+
+async function setSpecificDay(dateStr) {
+    selectedDate = new Date(dateStr);
+    renderWeekView();
+}
+
+async function fetchCalendarTasks() {
+    const dateStr = selectedDate.toISOString().split('T')[0];
+    const res = await fetch(`${API_BASE_URL}/api/tasks/${userId}?date=${dateStr}`);
+    const tasks = await res.json();
+    const container = document.getElementById('list-calendar-tasks');
+    
+    container.innerHTML = tasks.length ? '' : '<div class="p-8 text-center text-zinc-600 text-xs uppercase tracking-widest font-bold">Задач нет</div>';
+    tasks.forEach(t => {
+        container.innerHTML += `
+            <div class="card border-b border-zinc-800/50 last:border-none">
+                <input type="checkbox" ${t.is_completed ? 'checked' : ''} onclick="toggleTask(${t.id})" class="checkbox-task">
+                <span class="${t.is_completed ? 'line-through text-zinc-600' : 'text-white'} text-sm">${t.title}</span>
+            </div>
+        `;
+    });
+}
+
+function changeCalendarPeriod(offset) {
+    calendarDate.setMonth(calendarDate.getMonth() + offset);
+    renderCalendar();
+}
+
+function setCalendarToToday() {
+    calendarDate = new Date();
+    selectedDate = new Date();
+    renderCalendar();
+    if (!document.getElementById('calendar-week-view').classList.contains('hidden')) {
+        renderWeekView();
+    }
 }
